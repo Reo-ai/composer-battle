@@ -22,6 +22,7 @@ import { AudioBus } from './audio.js';
 import { ItemManager, SHIELD_CATALOG, HEAL_CATALOG } from './items.js';
 import { getAllWeapons } from './weapons.js';
 import { VEHICLES } from './vehicles.js';
+import { initMobileControls } from './mobile-controls.js';
 
 // ---- レンダラー ----
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -111,6 +112,8 @@ scene.add(playerChar);
 const input = new Input();
 // キャンバスクリックで Pointer Lock を取得（マウス視点）
 input.attachPointerLock(renderer.domElement);
+// モバイル向けオンスクリーンコントローラ（右下のトグルで表示）
+initMobileControls(input);
 const player = new Player(playerChar, {
   ownerId: 'player',
   bulletColor: CHARACTERS[currentCharId].color,
@@ -137,52 +140,69 @@ spawnEnemy('owl_oto', new THREE.Vector3(-8, 6, -8));
 
 // ---- アイテム（ワープスポット + 連射ブースト） ----
 const items = new ItemManager(scene);
-// ステージ拡張に合わせ、アイテムは中央アリーナ外周〜遠方まで広範囲にランダム散布する。
-// 同じ位置に偏らないよう、最小距離を保ちながら振り分ける。
+// ステージ拡張に合わせ、アイテムは中央アリーナ外周〜遠方まで広範囲に均等に散布する。
+// ゴールデン角スパイラル(フィボナッチ配置)により、視覚的に完全に均等散布されるスロット配列を事前生成し、
+// シャッフルして各アイテム種別に順番に割り当てる。これにより「中央密集」現象を根絶する。
 function spawnDefaultItems() {
   const HALF = STAGE_BOUNDS.half;
   const ARENA = STAGE_BOUNDS.arenaRadius;
   // 散布対象の有効半径（外周の山岳手前まで）
-  const MIN_R = ARENA + 16;       // 中央アリーナをよける
+  const MIN_R = ARENA + 40;       // 中央アリーナから十分離す
   const MAX_R = HALF * 0.62;      // 外周山岳の手前まで
-  const placed = []; // {x,z,minD}
   // 安定したレイアウトのため擬似乱数（seed 固定）
   let _seed = 1337;
   const rand = () => {
     _seed = (_seed * 1664525 + 1013904223) >>> 0;
     return _seed / 0xffffffff;
   };
-  // 候補をN回試して既存と最低距離以上ならOK
-  function pickGroundPos(minSpacing, yOffset = 1.5, opts = {}) {
-    const ringFromArena = opts.ringFromArena ?? false;
-    const maxR = opts.maxR ?? MAX_R;
-    const minR = opts.minR ?? MIN_R;
-    for (let tries = 0; tries < 80; tries++) {
-      const ang = rand() * Math.PI * 2;
-      // 面積一様サンプル: r = sqrt(t*(max^2-min^2)+min^2)
-      // 従来の sqrt(t)*(max-min)+min では中央に偏るバグがあった
-      const t = rand();
+
+  // ゴールデン角スパイラル配置でスロットを生成
+  // t=(i+0.5)/N を面積一様半径に変換 → 半径分布は自動で均等（内外の密度が同じ）
+  // 角度はゴールデン角(2.39996)で回すと重ならず均等被覆
+  function buildSlots(N, minR, maxR, jitterR = 8, jitterA = 0.08) {
+    const arr = [];
+    for (let i = 0; i < N; i++) {
+      const t = (i + 0.5) / N;
       const r = Math.sqrt(t * (maxR * maxR - minR * minR) + minR * minR);
-      const x = Math.cos(ang) * r;
-      const z = Math.sin(ang) * r;
-      // 既存との最小距離チェック
-      let ok = true;
-      for (const p of placed) {
-        const dx = x - p.x, dz = z - p.z;
-        if (dx * dx + dz * dz < (minSpacing * minSpacing)) { ok = false; break; }
-      }
-      if (!ok) continue;
-      placed.push({ x, z });
-      const y = getTerrainHeightAt(x, z) + yOffset;
-      return new THREE.Vector3(x, y, z);
+      const ang = i * 2.39996323;
+      const jR = (rand() - 0.5) * jitterR;
+      const jA = (rand() - 0.5) * jitterA;
+      arr.push({ r: r + jR, ang: ang + jA });
     }
-    // フォールバック：制約を諦めて最後の候補を返す
-    const ang = rand() * Math.PI * 2;
-    const r = (minR + maxR) * 0.5;
-    const x = Math.cos(ang) * r;
-    const z = Math.sin(ang) * r;
-    placed.push({ x, z });
-    return new THREE.Vector3(x, getTerrainHeightAt(x, z) + yOffset, z);
+    // シャッフルして種別ごとの偏りを消す（金属探知ゲーム的な偏りを避ける）
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(rand() * (i + 1));
+      const tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
+    }
+    return arr;
+  }
+
+  // 通常アイテム用スロット（80枠）と乗り物用スロット（16枠、より外側）を用意
+  const commonSlots = buildSlots(80, MIN_R, MAX_R);
+  const vehicleSlotsNormal = buildSlots(10, ARENA + 100, MAX_R * 0.8);
+  const vehicleSlotsLegend = buildSlots(6, ARENA + 200, MAX_R * 0.95);
+  let commonIdx = 0;
+  let vNormalIdx = 0;
+  let vLegendIdx = 0;
+
+  function pickFromSlot(slot, yOffset) {
+    const x = Math.cos(slot.ang) * slot.r;
+    const z = Math.sin(slot.ang) * slot.r;
+    const y = getTerrainHeightAt(x, z) + yOffset;
+    return new THREE.Vector3(x, y, z);
+  }
+  function pickGroundPos(_minSpacing, yOffset = 1.5, opts = {}) {
+    // opts.slotType で乗り物枠を切り替え、それ以外は共通枠から順に取得
+    if (opts.slotType === 'vehicleLegend') {
+      const s = vehicleSlotsLegend[vLegendIdx++ % vehicleSlotsLegend.length];
+      return pickFromSlot(s, yOffset);
+    }
+    if (opts.slotType === 'vehicleNormal') {
+      const s = vehicleSlotsNormal[vNormalIdx++ % vehicleSlotsNormal.length];
+      return pickFromSlot(s, yOffset);
+    }
+    const s = commonSlots[commonIdx++ % commonSlots.length];
+    return pickFromSlot(s, yOffset);
   }
 
   // ワープスポット2ペア：外周〜中域に分散
@@ -229,14 +249,10 @@ function spawnDefaultItems() {
     items.addHeal(pos, h, { respawn: 14 });
   });
 
-  // 乗り物：地上配置（他アイテムと同じく広範囲に散らす）
+  // 乗り物：地上配置（他アイテムと分離した専用スロットで均等散布）
   VEHICLES.forEach((v) => {
     const isLeg = !!v.legendary;
-    // 非伝説：ARENA+40 〜 MAX_R*0.7 の中距離帯
-    // 伝説：ARENA+120 〜 MAX_R*0.9 の遠距離帯（探索価値）
-    const opts = isLeg
-      ? { minR: ARENA + 120, maxR: MAX_R * 0.9 }
-      : { minR: ARENA + 40, maxR: MAX_R * 0.7 };
+    const opts = isLeg ? { slotType: 'vehicleLegend' } : { slotType: 'vehicleNormal' };
     const pos = pickGroundPos(80, 0.6, opts);
     items.addVehicleGround(pos, v, { respawn: 30 });
   });
