@@ -290,8 +290,8 @@ export const CHARACTERS = {
     name: '作曲ネコ',
     create: createCatNeko,
     color: 0x3a7ec8,
-    maxHp: 396,            // 99 × 4 (体力3倍化)
-    baseSegmentHp: 99,
+    maxHp: 1188,           // 297 × 4 (体力さらに3倍)
+    baseSegmentHp: 297,
     moveSpeed: 6,
     attack: 10,
     desc: 'バランス型の作曲家ネコ。安定した火力と機動力。',
@@ -302,8 +302,8 @@ export const CHARACTERS = {
     name: '作曲先生',
     create: createSensei,
     color: 0x6b9e5c,
-    maxHp: 516,            // 129 × 4 (体力3倍化)
-    baseSegmentHp: 129,
+    maxHp: 1548,           // 387 × 4 (体力さらに3倍)
+    baseSegmentHp: 387,
     moveSpeed: 5,
     attack: 8,
     desc: '耐久型の作曲先生。被弾時に自己回復する。',
@@ -314,8 +314,8 @@ export const CHARACTERS = {
     name: '作曲フクロウ オト',
     create: createOwlOto,
     color: 0xe89a3a,
-    maxHp: 360,            // 90 × 4 (体力3倍化)
-    baseSegmentHp: 90,
+    maxHp: 1080,           // 270 × 4 (体力さらに3倍)
+    baseSegmentHp: 270,
     moveSpeed: 7,
     attack: 12,
     desc: '速射高火力のフクロウ。低耐久だが手数で押し切る。',

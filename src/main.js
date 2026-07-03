@@ -22,7 +22,6 @@ import { AudioBus } from './audio.js';
 import { ItemManager, SHIELD_CATALOG, HEAL_CATALOG } from './items.js';
 import { getAllWeapons } from './weapons.js';
 import { VEHICLES } from './vehicles.js';
-import { initMobileControls } from './mobile-controls.js';
 
 // ---- レンダラー ----
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -112,13 +111,11 @@ scene.add(playerChar);
 const input = new Input();
 // キャンバスクリックで Pointer Lock を取得（マウス視点）
 input.attachPointerLock(renderer.domElement);
-// モバイル向けオンスクリーンコントローラ（右下のトグルで表示）
-initMobileControls(input);
 const player = new Player(playerChar, {
   ownerId: 'player',
   bulletColor: CHARACTERS[currentCharId].color,
-  // 要望：1 回ダメージのゲージ消費量を減らすため maxHp を 200 に増加（被弾耐性 2 倍）
-  maxHp: 200,
+  // 体力3倍化: 200 → 600
+  maxHp: 600,
   attackSetId: currentCharId,
 });
 const followCam = new ThirdPersonCamera(camera, player);
@@ -130,7 +127,7 @@ const projectiles = new ProjectileManager(scene);
 const enemies = [];
 function spawnEnemy(charId, position) {
   // 敵も同じく maxHp を 200 に（プレイヤーと体力バランスを合わせる）
-  const e = new Enemy(charId, position, { maxHp: 200, ownerId: 'enemy_' + enemies.length });
+  const e = new Enemy(charId, position, { maxHp: 600, ownerId: 'enemy_' + enemies.length });
   scene.add(e.object);
   enemies.push(e);
   return e;
@@ -145,9 +142,9 @@ const items = new ItemManager(scene);
 function spawnDefaultItems() {
   const HALF = STAGE_BOUNDS.half;
   const ARENA = STAGE_BOUNDS.arenaRadius;
-  // 散布対象の有効半径（ステージ端の山岳手前まで、満遍なく散らす）
+  // 散布対象の有効半径（外周の山岳手前まで）
   const MIN_R = ARENA + 16;       // 中央アリーナをよける
-  const MAX_R = HALF * 0.85;      // ステージ端近くまで広く散布（以前は 0.62 で中央寄りに偏っていた）
+  const MAX_R = HALF * 0.62;      // 外周山岳の手前まで
   const placed = []; // {x,z,minD}
   // 安定したレイアウトのため擬似乱数（seed 固定）
   let _seed = 1337;
@@ -162,8 +159,8 @@ function spawnDefaultItems() {
     const minR = opts.minR ?? MIN_R;
     for (let tries = 0; tries < 80; tries++) {
       const ang = rand() * Math.PI * 2;
-      // 真の面積一様サンプル：円環 [minR, maxR] 上で密度が半径に比例（偏りなし）
-      // r = sqrt(t * (maxR² - minR²) + minR²)
+      // 面積一様サンプル: r = sqrt(t*(max^2-min^2)+min^2)
+      // 従来の sqrt(t)*(max-min)+min では中央に偏るバグがあった
       const t = rand();
       const r = Math.sqrt(t * (maxR * maxR - minR * minR) + minR * minR);
       const x = Math.cos(ang) * r;
@@ -190,57 +187,57 @@ function spawnDefaultItems() {
 
   // ワープスポット2ペア：外周〜中域に分散
   {
-    const a = pickGroundPos(100, 4);
-    const b = pickGroundPos(100, 4);
+    const a = pickGroundPos(60, 4);
+    const b = pickGroundPos(60, 4);
     items.addWarpPair(a, b, { colorA: 0x66ccff, colorB: 0xff7adf });
   }
   {
-    const a = pickGroundPos(100, 18); // 上空ハブ
+    const a = pickGroundPos(60, 18); // 上空ハブ
     a.y += 14;
-    const b = pickGroundPos(100, 3);
+    const b = pickGroundPos(60, 3);
     items.addWarpPair(a, b, { colorA: 0xb8ff66, colorB: 0xffd166 });
   }
 
   // 連射ブースト：開けた場所に3つ
   for (let i = 0; i < 3; i++) {
-    const p = pickGroundPos(90, 5 + i * 2);
+    const p = pickGroundPos(55, 5 + i * 2);
     items.addPowerUp(p, { mul: 0.45 - i * 0.05, duration: 8 + i * 2, respawn: 14 + i * 2 });
   }
 
   // 回復オーブ：3つを広域に
   for (let i = 0; i < 3; i++) {
-    const p = pickGroundPos(90, 4 + i * 2);
+    const p = pickGroundPos(55, 4 + i * 2);
     items.addHealOrb(p, { amount: 60 + i * 10, respawn: 14 + i * 3 });
   }
 
-  // 武器ピックアップ：30種類をランダム散布（間隔を広げてステージ全体に散らす）
+  // 武器ピックアップ：30種類をランダム散布
   const weapons = getAllWeapons();
   weapons.forEach((w) => {
-    const pos = pickGroundPos(75, 1.6);
+    const pos = pickGroundPos(45, 1.6);
     items.addWeapon(pos, w, { respawn: 25 });
   });
 
   // 盾ピックアップ：10種類
   SHIELD_CATALOG.forEach((s) => {
-    const pos = pickGroundPos(75, 1.6);
+    const pos = pickGroundPos(45, 1.6);
     items.addShield(pos, s, { respawn: 25 });
   });
 
   // 回復ピックアップ：10種類
   HEAL_CATALOG.forEach((h) => {
-    const pos = pickGroundPos(75, 1.6);
+    const pos = pickGroundPos(45, 1.6);
     items.addHeal(pos, h, { respawn: 14 });
   });
 
-  // 乗り物：地上配置（ステージ全体に満遍なく、伝説はさらに遠くまで探索）
+  // 乗り物：地上配置（他アイテムと同じく広範囲に散らす）
   VEHICLES.forEach((v) => {
     const isLeg = !!v.legendary;
-    // 非伝説：アリーナ外周〜ステージ中域まで広く分散
-    // 伝説：中域〜ステージ端付近まで（探索の楽しみ）
+    // 非伝説：ARENA+40 〜 MAX_R*0.7 の中距離帯
+    // 伝説：ARENA+120 〜 MAX_R*0.9 の遠距離帯（探索価値）
     const opts = isLeg
-      ? { minR: ARENA + 120, maxR: MAX_R }
-      : { minR: ARENA + 20, maxR: MAX_R * 0.75 };
-    const pos = pickGroundPos(60, 0.6, opts);
+      ? { minR: ARENA + 120, maxR: MAX_R * 0.9 }
+      : { minR: ARENA + 40, maxR: MAX_R * 0.7 };
+    const pos = pickGroundPos(80, 0.6, opts);
     items.addVehicleGround(pos, v, { respawn: 30 });
   });
 }
@@ -691,9 +688,9 @@ function animate() {
     }
     // 特殊攻撃（B）：飛び道具系（大型/連射/誘導）
     if (input.isDown('KeyB')) {
-      // レッドドラゴン搭乗中は火炎放射(1.5秒)を優先
+      // レッドドラゴン搭乗中は巨大火の玉3連射を優先
       if (player.mountedVehicle && player.mountedVehicle.id === 'veh_dragon') {
-        player.tryStartDragonFire(audio);
+        player.tryStartDragonFire(projectiles, audio);
       } else if (player.mountedVehicle && player.mountedVehicle.id === 'veh_ufo') {
         // UFO搭乗中は真下に雷を落とす
         player.tryUfoLightning(effects, enemies, audio);
@@ -702,9 +699,13 @@ function animate() {
         if (fired) audio.fire();
       }
     }
-    // 火炎放射中: 連続する炎ストリーム表示 + 円錐範囲ダメージ
-    if (player.updateDragonFireSpray) {
-      player.updateDragonFireSpray(dt, scene, enemies);
+    // 火の玉バースト進行(0.5秒間隔で3発)
+    if (player.updateDragonFireballs) {
+      player.updateDragonFireballs(dt, projectiles, audio);
+    }
+    // レッドドラゴン: 敵に接触するだけで体当たりダメージ
+    if (player.updateDragonContactDamage) {
+      player.updateDragonContactDamage(dt, enemies);
     }
     // レッドドラゴン等: 移動中はエンジン後方から火炎を噴射
     if (player.updateDragonExhaustFire) {

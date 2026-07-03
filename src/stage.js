@@ -371,6 +371,8 @@ function createSkyDome() {
   });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.renderOrder = -3;
+  // 空の高さを2倍にする（Y方向にスケール）
+  mesh.scale.y = 2;
   return mesh;
 }
 
@@ -451,33 +453,9 @@ function createLensFlare(sunPos) {
   return group;
 }
 
-// 遠景の霞プレート（平面に半透明グラデを貼って空気遠近を演出）— ステージ拡張に合わせて全体を拡大
+// 遠景の霞プレート — 光のカーテン状の仕切りに見えるため無効化（空Groupを返す）
 function createHazePlanes() {
-  const group = new THREE.Group();
-  // 5層に増やし、距離・高さ・幅を全部スケールアップ
-  for (let i = 0; i < 5; i++) {
-    const dist = 220 + i * 70; // 220, 290, 360, 430, 500
-    const planeW = 1100;
-    const planeH = 110 + i * 18;
-    const geo = new THREE.PlaneGeometry(planeW, planeH, 1, 1);
-    const mat = new THREE.MeshBasicMaterial({
-      color: new THREE.Color().setHSL(0.05 - i * 0.008, 0.55, 0.62 - i * 0.07),
-      transparent: true,
-      opacity: 0.22 - i * 0.035,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    });
-    // 8方向に配置（カバレッジを上げる）
-    for (let s = 0; s < 8; s++) {
-      const plane = new THREE.Mesh(geo, mat);
-      const angle = (s / 8) * Math.PI * 2;
-      const y = 14 + i * 6;
-      plane.position.set(Math.sin(angle) * dist, y, Math.cos(angle) * dist);
-      plane.lookAt(0, y, 0);
-      group.add(plane);
-    }
-  }
-  return group;
+  return new THREE.Group();
 }
 
 // 多層山稜（手前ほど濃く、奥は薄く）— 4層に増、ステージ拡張に合わせて距離・密度を大幅増

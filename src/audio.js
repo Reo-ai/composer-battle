@@ -403,6 +403,26 @@ export class AudioBus {
     this._noiseBurst(0.12, 4000, 1500, 2.0, 0.25, 'bandpass');
   }
 
+  // --- ドラゴンの火の玉（発射音）: 低音の爆発ドスン + 炎のヒュオッ ---
+  dragonFireball() {
+    if (!this._ready || this.muted) return;
+    const t = this.ctx.currentTime;
+    // (1) 低音の爆発(サブベースのドスン)
+    const boom = this.ctx.createOscillator();
+    boom.type = 'sine';
+    boom.frequency.setValueAtTime(150, t);
+    boom.frequency.exponentialRampToValueAtTime(42, t + 0.3);
+    const bg = this.ctx.createGain();
+    bg.gain.setValueAtTime(0.55, t);
+    bg.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+    boom.connect(bg).connect(this.master);
+    boom.start(t); boom.stop(t + 0.36);
+    // (2) 炎の噴出「ヒュオッ」(下降するバンドパスノイズ)
+    this._noiseBurst(0.3, 2600, 500, 1.2, 0.4, 'bandpass');
+    // (3) 火の粉のパチッ(高域の短いノイズ)
+    this._noiseBurst(0.1, 5200, 2800, 2.5, 0.16, 'highpass');
+  }
+
   // --- ドラゴンの火炎放射（ポケモン風・1.5秒） ---
   // 構成: 噴射の轟音(roar) + 燃え盛るホワイトノイズ + 不規則パチパチ + 低音うなり
   dragonFire() {

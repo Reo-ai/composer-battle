@@ -1105,6 +1105,8 @@ class ItemManager {
     for (const p of players) {
       if (!p || !p.alive) continue;
       const pp = p.object.position;
+      // UFO搭乗中は半径2mのアイテムを吸引取得(ワープと乗り物スポーンは対象外)
+      const ufoMagnet = (p.mountedVehicle && p.mountedVehicle.id === 'veh_ufo') ? 2.0 : 0;
 
       // ワープ
       for (const it of this.items) {
@@ -1146,7 +1148,7 @@ class ItemManager {
         if (!it.alive) continue;
         if (it.kind === 'warp') continue;
         const d = pp.distanceTo(it.object.position);
-        if (d > (it.radius || 1.0) + 0.6) continue;
+        if (d > (it.radius || 1.0) + 0.6 + ufoMagnet) continue;
 
         if (it.kind === 'powerup') {
           if (p.applyFireBoost) p.applyFireBoost(it.mul ?? 0.5, it.duration ?? 8);

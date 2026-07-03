@@ -411,8 +411,10 @@ export class Player {
     this.mountedVehicleModel = null;  // object 直下にぶら下げる THREE.Object3D
     this.mountTimer = 0;
     // ドラゴン火炎放射(KeyB)
-    this.dragonFireTimer = 0;         // 残り噴射時間(秒)
-    this.dragonFireCooldown = 0;      // 噴射後の再使用クールダウン
+    this.dragonFireTimer = 0;         // 演出(顎開け)残り時間(秒)
+    this.dragonFireCooldown = 0;      // 再使用クールダウン
+    this.dragonFireballsLeft = 0;     // 火の玉バーストの残弾
+    this.dragonFireballTimer = 0;     // 次弾までの間隔タイマー
     this._dragonFireSpawnAcc = 0;     // 弾スポーン用アキュムレータ
     this._dragonExhaustAcc = 0;       // レッドドラゴンのエンジン後方噴射用
     // スカイボード追い風(Shift中に発動): 後方に風の帯を吐いて範囲ダメージ
@@ -701,6 +703,8 @@ export class Player {
     // ドラゴンファイアタイマーも消しておく
     this.dragonFireTimer = 0;
     this.dragonFireCooldown = 0;
+    this.dragonFireballsLeft = 0;
+    this.dragonFireballTimer = 0;
     this._dragonFireSpawnAcc = 0;
     // ultimateCharge は意図的に残す
   }
@@ -739,18 +743,52 @@ export class Player {
     return true;
   }
 
-  // --- レッドドラゴン火炎放射（KeyB）: 1.5秒間、前方に火炎を連射 ---
-  // 戻り値: true = 噴射開始した / false = 開始できない
-  tryStartDragonFire(audio) {
+  // --- レッドドラゴン特殊技（KeyB）: 巨大火の玉を0.5秒間隔で3連射 ---
+  // 1発のダメージは通常弾(BULLET_DAMAGE=10)の2倍。
+  // 戻り値: true = バースト開始した / false = 開始できない
+  tryStartDragonFire(projectiles, audio) {
     if (!this.alive) return false;
     if (!this.mountedVehicle || this.mountedVehicle.id !== 'veh_dragon') return false;
-    if (this.dragonFireTimer > 0) return false;       // 噴射中
+    if (this.dragonFireballsLeft > 0) return false;   // 連射中
+    if (this.dragonFireTimer > 0) return false;       // 演出中
     if (this.dragonFireCooldown > 0) return false;    // クールダウン中
-    this.dragonFireTimer = 1.5;
-    this._dragonFireSpawnAcc = 0;
-    if (audio && typeof audio.dragonFire === 'function') audio.dragonFire();
-    else if (audio && typeof audio.fire === 'function') audio.fire();
+    this.dragonFireballsLeft = 3;
+    this.dragonFireballTimer = 0;   // 次フレームで即1発目
+    this.dragonFireTimer = 1.2;     // 顎開けアニメ用(3発目の直後まで)
     return true;
+  }
+
+  // --- 火の玉バースト進行: main.js のループから毎フレーム呼ぶ ---
+  updateDragonFireballs(dt, projectiles, audio) {
+    if (!this.dragonFireballsLeft) return;
+    this.dragonFireballTimer -= dt;
+    if (this.dragonFireballTimer > 0) return;
+
+    // 発射起点: ドラゴンの口(なければプレイヤー前方)
+    const aim = this.getAimDirection();
+    const pos = this.object.position.clone();
+    const mouthObj = this.mountedVehicleModel?.userData?.mouth;
+    if (mouthObj) {
+      mouthObj.getWorldPosition(pos);
+      pos.addScaledVector(aim, 1.6); // 巨大化に合わせ頭にめり込まないよう前へ
+    } else {
+      pos.y += 1.6;
+      pos.addScaledVector(aim, 1.0);
+    }
+
+    projectiles.spawn(pos, aim, 0xff5522, this.ownerId, {
+      speed: 42,
+      dmg: 50,          // 火の玉ダメージ50
+      life: 3.5,
+      radius: 2.0,      // 超巨大な火の玉(2まわり拡大)
+      style: 'fire',
+      coreColor: 0xffe680,
+    });
+    if (audio && typeof audio.dragonFireball === 'function') audio.dragonFireball();
+    else if (audio && typeof audio.fire === 'function') audio.fire();
+
+    this.dragonFireballsLeft--;
+    this.dragonFireballTimer = 0.5; // 次弾まで0.5秒
   }
 
   // 噴射中フラグ
@@ -1037,6 +1075,41 @@ export class Player {
     scene.add(stream.group);
     this._dragonExhaustJet = stream;
     this._dragonExhaustDamageAcc = 0;
+  }
+
+  // レッドドラゴン騎乗中: 敵に接触するだけでダメージを与える(体当たり)
+  // 同じ敵への連続ヒットは連射しすぎないようクールダウンを設ける
+  updateDragonContactDamage(dt, enemies) {
+    const veh = this.mountedVehicle;
+    if (!veh || veh.id !== 'veh_dragon') return;
+    if (!enemies || enemies.length === 0) return;
+    if (!this._dragonContactCooldowns) this._dragonContactCooldowns = new WeakMap();
+    const cooldowns = this._dragonContactCooldowns;
+    const myPos = this.object.position;
+    // ドラゴン自体が大型なので接触判定は少し大きめに
+    const myRadius = 2.4;
+    const dmgPerHit = 25;
+    const hitCooldown = 0.6; // 秒。同一敵への連射抑止
+    for (const en of enemies) {
+      if (!en || !en.alive || !en.object) continue;
+      const prev = cooldowns.get(en) || 0;
+      const nextCd = prev - dt;
+      if (nextCd > 0) {
+        cooldowns.set(en, nextCd);
+        continue;
+      }
+      const ep = en.object.position;
+      const dx = ep.x - myPos.x;
+      const dy = ep.y - myPos.y;
+      const dz = ep.z - myPos.z;
+      const rr = myRadius + (en.radius || 2.0);
+      if (dx * dx + dy * dy + dz * dz <= rr * rr) {
+        en.takeDamage(dmgPerHit);
+        cooldowns.set(en, hitCooldown);
+      } else if (prev > 0) {
+        cooldowns.set(en, 0);
+      }
+    }
   }
 
   updateDragonExhaustFire(dt, scene, enemies) {
