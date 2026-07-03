@@ -138,7 +138,7 @@ export class HUD {
     this.helpPanel = document.createElement('div');
     this.helpPanel.style.position = 'fixed';
     this.helpPanel.style.left = '12px';
-    this.helpPanel.style.top = '12px';
+    this.helpPanel.style.top = '48px'; // トグルボタン分の余白
     this.helpPanel.style.padding = '10px 12px';
     this.helpPanel.style.background = 'rgba(0,0,0,0.45)';
     this.helpPanel.style.border = '1px solid rgba(255,255,255,0.25)';
@@ -147,13 +147,49 @@ export class HUD {
     this.helpPanel.style.fontFamily = 'sans-serif';
     this.helpPanel.style.fontSize = '11px';
     this.helpPanel.style.lineHeight = '1.55';
-    this.helpPanel.style.pointerEvents = 'none';
+    // スクロール可能にするため、パネル本体は pointer-events を有効化する
+    // (canvas 側の Pointer Lock が発火しないよう、内部でイベントを止める)
+    this.helpPanel.style.pointerEvents = 'auto';
+    this.helpPanel.style.touchAction = 'pan-y';
+    this.helpPanel.style.webkitOverflowScrolling = 'touch';
     this.helpPanel.style.textShadow = '0 1px 2px rgba(0,0,0,0.7)';
     this.helpPanel.style.maxWidth = '280px';
     // STATUSパネル(左下)との重なりを防ぐ
     this.helpPanel.style.maxHeight = 'calc(100vh - 260px)';
     this.helpPanel.style.overflowY = 'auto';
+    this.helpPanel.style.zIndex = '20';
+    // パネル内でのタッチ/クリックが canvas へ伝播して Pointer Lock を要求しないようにする
+    ['mousedown', 'click', 'touchstart', 'touchmove', 'touchend'].forEach((ev) => {
+      this.helpPanel.addEventListener(ev, (e) => e.stopPropagation(), { passive: true });
+    });
     this.root.appendChild(this.helpPanel);
+
+    // 操作パネル用トグルボタン(左上)
+    this.helpToggle = document.createElement('button');
+    this.helpToggle.type = 'button';
+    this.helpToggle.setAttribute('aria-label', '操作パネル切替');
+    this.helpToggle.textContent = '❓';
+    Object.assign(this.helpToggle.style, {
+      position: 'fixed', left: '12px', top: '12px',
+      width: '32px', height: '32px', borderRadius: '8px',
+      background: 'rgba(0,0,0,0.55)', color: '#fff',
+      border: '1px solid rgba(255,255,255,0.35)',
+      fontSize: '16px', lineHeight: '1', padding: '0',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      cursor: 'pointer', pointerEvents: 'auto',
+      touchAction: 'manipulation', userSelect: 'none',
+      zIndex: '20',
+    });
+    const toggleHelp = (e) => {
+      if (e) { e.preventDefault(); e.stopPropagation(); }
+      const hidden = this.helpPanel.style.display === 'none';
+      this.helpPanel.style.display = hidden ? '' : 'none';
+      this.helpToggle.style.background = hidden
+        ? 'rgba(80,180,255,0.6)' : 'rgba(0,0,0,0.55)';
+    };
+    this.helpToggle.addEventListener('click', toggleHelp);
+    this.helpToggle.addEventListener('touchend', toggleHelp, { passive: false });
+    this.root.appendChild(this.helpToggle);
     // 現在のキャラ情報を保持(再描画用)
     this._currentCharName = null;
     this._currentLabels = null;
@@ -187,8 +223,12 @@ export class HUD {
     this.statusPanel.style.fontSize = '13px';
     this.statusPanel.style.lineHeight = '1.6';
     this.statusPanel.style.textShadow = '0 1px 2px rgba(0,0,0,0.7)';
-    this.statusPanel.style.pointerEvents = 'none';
+    this.statusPanel.style.pointerEvents = 'auto';
     this.statusPanel.style.zIndex = '21';
+    // canvas への伝播を止めて Pointer Lock 誤発火を防ぐ
+    ['mousedown', 'click', 'touchstart', 'touchmove', 'touchend'].forEach((ev) => {
+      this.statusPanel.addEventListener(ev, (e) => e.stopPropagation(), { passive: true });
+    });
     this.statusPanel.innerHTML = `
       <div style="font-weight:bold;font-size:11px;letter-spacing:1px;opacity:0.75;margin-bottom:6px;">STATUS</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;column-gap:14px;row-gap:2px;">
@@ -220,6 +260,49 @@ export class HUD {
       </div>
     `;
     this.root.appendChild(this.statusPanel);
+
+    // ステータスパネル用トグルボタン(左下・パネル上部)
+    this.statusToggle = document.createElement('button');
+    this.statusToggle.type = 'button';
+    this.statusToggle.setAttribute('aria-label', 'ステータスパネル切替');
+    this.statusToggle.textContent = '📊';
+    Object.assign(this.statusToggle.style, {
+      position: 'fixed', left: '20px', bottom: '20px',
+      width: '36px', height: '36px', borderRadius: '8px',
+      background: 'rgba(80,180,255,0.6)', color: '#fff',
+      border: '1px solid rgba(255,255,255,0.5)',
+      fontSize: '18px', lineHeight: '1', padding: '0',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      cursor: 'pointer', pointerEvents: 'auto',
+      touchAction: 'manipulation', userSelect: 'none',
+      zIndex: '22',
+    });
+    const toggleStatus = (e) => {
+      if (e) { e.preventDefault(); e.stopPropagation(); }
+      const hidden = this.statusPanel.style.display === 'none';
+      this.statusPanel.style.display = hidden ? '' : 'none';
+      this.statusToggle.style.background = hidden
+        ? 'rgba(80,180,255,0.6)' : 'rgba(0,0,0,0.55)';
+      // 開いているときはボタンを重ねずパネルの直上へ、閉じているときは左下の定位置へ
+      if (hidden) {
+        this.statusToggle.style.bottom =
+          (this.statusPanel.offsetHeight + 28) + 'px';
+      } else {
+        this.statusToggle.style.bottom = '20px';
+      }
+    };
+    this.statusToggle.addEventListener('click', toggleStatus);
+    this.statusToggle.addEventListener('touchend', toggleStatus, { passive: false });
+    this.root.appendChild(this.statusToggle);
+    // 初期状態(パネル表示)ではボタンをパネル上部に置く
+    // レイアウト確定後に位置を再計算
+    requestAnimationFrame(() => {
+      if (this.statusPanel.style.display !== 'none') {
+        this.statusToggle.style.bottom =
+          (this.statusPanel.offsetHeight + 28) + 'px';
+      }
+    });
+
     this._statusWeapon = this.statusPanel.querySelector('[data-val="weapon"]');
     this._statusShield = this.statusPanel.querySelector('[data-val="shield"]');
     this._statusVehicle = this.statusPanel.querySelector('[data-val="vehicle"]');
