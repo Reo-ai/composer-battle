@@ -153,9 +153,9 @@ export class HUD {
     this.helpPanel.style.touchAction = 'pan-y';
     this.helpPanel.style.webkitOverflowScrolling = 'touch';
     this.helpPanel.style.textShadow = '0 1px 2px rgba(0,0,0,0.7)';
-    this.helpPanel.style.maxWidth = '280px';
-    // STATUSパネル(左下)との重なりを防ぐ
-    this.helpPanel.style.maxHeight = 'calc(100vh - 260px)';
+    this.helpPanel.style.maxWidth = '220px';
+    // スクロール可能なので表示エリア自体は小さくして視界を確保する
+    this.helpPanel.style.maxHeight = 'min(220px, calc(100vh - 280px))';
     this.helpPanel.style.overflowY = 'auto';
     this.helpPanel.style.zIndex = '20';
     // パネル内でのタッチ/クリックが canvas へ伝播して Pointer Lock を要求しないようにする
@@ -212,8 +212,8 @@ export class HUD {
     this.statusPanel.style.position = 'fixed';
     this.statusPanel.style.left = '20px';
     this.statusPanel.style.bottom = '20px';
-    this.statusPanel.style.minWidth = '460px';
-    this.statusPanel.style.maxWidth = '520px';
+    this.statusPanel.style.minWidth = '340px';
+    this.statusPanel.style.maxWidth = '380px';
     this.statusPanel.style.padding = '10px 16px';
     this.statusPanel.style.background = 'rgba(0,0,0,0.55)';
     this.statusPanel.style.border = '1px solid rgba(255,255,255,0.25)';
