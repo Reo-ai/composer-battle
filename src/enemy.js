@@ -101,9 +101,37 @@ export class Enemy {
     }
     const strafe = new THREE.Vector3(-flat.z, 0, flat.x).multiplyScalar(this.strafeDir);
 
+    // 遮蔽物モジュール（LOS 判定と衝突解決の両方で使う）
+    const _covers = (typeof window !== 'undefined') ? window.__covers : null;
+
+    // 視線判定: 敵→プレイヤーの間に壁があるか？
+    let canSee = true;
+    if (_covers) {
+      const eyeFrom = myPos.clone(); eyeFrom.y += 1.4;
+      const eyeTo = plPos.clone(); eyeTo.y += 1.4;
+      const rd = eyeTo.clone().sub(eyeFrom);
+      const rlen = rd.length();
+      if (rlen > 0.001) {
+        rd.divideScalar(rlen);
+        const wallT = _covers.raycastNearestT(eyeFrom, rd, rlen);
+        if (wallT !== null && wallT < rlen - 0.05) canSee = false;
+      }
+    }
+
+    // HP が減ってきたら退避モード
+    const retreating = this.hp < this.maxHp * 0.35;
+
     // 望みの速度を作る
     const desired = new THREE.Vector3();
-    if (dist > PREFERRED_DIST + 1.5) {
+    if (retreating) {
+      // 逃げる：後退＋ストレイフ強め
+      desired.addScaledVector(flat, -MAX_SPEED * 0.9);
+      desired.addScaledVector(strafe, MAX_SPEED * 0.7);
+    } else if (!canSee) {
+      // 見えないなら回り込みで視線を確保する
+      desired.addScaledVector(strafe, MAX_SPEED * 0.9);
+      desired.addScaledVector(flat, MAX_SPEED * 0.3);
+    } else if (dist > PREFERRED_DIST + 1.5) {
       // 距離が遠ければ近づく
       desired.addScaledVector(flat, MAX_SPEED);
     } else if (dist < PREFERRED_DIST - 1.5) {
@@ -125,9 +153,21 @@ export class Enemy {
     this.velocity.lerp(desired, Math.min(1, dt * 3.6));
     myPos.addScaledVector(this.velocity, dt);
 
+    // カバー/建物との水平衝突（敵も壁に埋まらない）
+    if (_covers) {
+      _covers.resolveXZ(myPos, this.radius * 0.6);
+    }
+
     // 地形に潜らない(地形高さをサンプリングして床にする)
     const groundY = getTerrainHeightAt(myPos.x, myPos.z);
-    const minY = groundY + 1.5;
+    let minY = groundY + 1.5;
+    if (_covers) {
+      const topSupport = _covers.resolveStandOn(myPos, this.radius * 0.6);
+      if (topSupport > -Infinity) {
+        const platY = topSupport + 1.5;
+        if (platY > minY) minY = platY;
+      }
+    }
     if (myPos.y < minY) {
       myPos.y = minY;
       this.velocity.y = Math.max(0, this.velocity.y);
@@ -139,7 +179,7 @@ export class Enemy {
 
     // ---- 射撃 ----
     this.fireCooldown -= dt;
-    if (this.fireCooldown <= 0 && dist < ATTACK_RANGE && projectiles) {
+    if (this.fireCooldown <= 0 && dist < ATTACK_RANGE && canSee && projectiles) {
       // マズル位置（少し前方）
       const muzzle = myPos.clone().add(new THREE.Vector3(0, 0.2, 0)).addScaledVector(flat, 0.8);
       // 狙いに少しブレを入れる

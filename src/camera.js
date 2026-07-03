@@ -59,3 +59,55 @@ export class ThirdPersonCamera {
     this.camera.lookAt(lookAt);
   }
 }
+
+// 一人称視点カメラ（FPS モード用）
+// - プレイヤーの目線位置に配置し、yaw/pitch で視線方向を決める
+// - 三人称と同じ .shake() インターフェースを提供
+const FPS_EYE_HEIGHT = 1.7;
+
+export class FirstPersonCamera {
+  constructor(camera, target) {
+    this.camera = camera;
+    this.target = target; // Player
+    this._shakeMag = 0;
+    this._shakeDecay = 6;
+    this._lookAt = new THREE.Vector3();
+    this._forward = new THREE.Vector3();
+  }
+
+  shake(magnitude = 0.25, decay = 6) {
+    this._shakeMag = Math.max(this._shakeMag, magnitude);
+    this._shakeDecay = decay;
+  }
+
+  update(dt = 0.016) {
+    const p = this.target.object.position;
+    const yaw = this.target.yaw;
+    const pitch = this.target.pitch;
+
+    // 目線位置
+    this.camera.position.set(p.x, p.y + FPS_EYE_HEIGHT, p.z);
+
+    // シェイク
+    if (this._shakeMag > 0.001) {
+      const m = this._shakeMag;
+      this.camera.position.x += (Math.random() - 0.5) * m;
+      this.camera.position.y += (Math.random() - 0.5) * m;
+      this.camera.position.z += (Math.random() - 0.5) * m;
+      this._shakeMag *= Math.exp(-this._shakeDecay * dt);
+    } else {
+      this._shakeMag = 0;
+    }
+
+    // yaw/pitch から視線方向を算出（ThirdPersonCamera と同じ座標系）
+    // ThirdPersonCamera では offset = (sin(yaw)*cos(pitch), -sin(pitch), cos(yaw)*cos(pitch)) * dist で
+    // プレイヤーの後方に置くため、視線方向はその逆向き（プレイヤーが向いている先）
+    this._forward.set(
+      -Math.sin(yaw) * Math.cos(pitch),
+      Math.sin(pitch),
+      -Math.cos(yaw) * Math.cos(pitch)
+    );
+    this._lookAt.copy(this.camera.position).add(this._forward);
+    this.camera.lookAt(this._lookAt);
+  }
+}

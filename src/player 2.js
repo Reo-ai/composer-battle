@@ -1077,41 +1077,6 @@ export class Player {
     this._dragonExhaustDamageAcc = 0;
   }
 
-  // レッドドラゴン騎乗中: 敵に接触するだけでダメージを与える(体当たり)
-  // 同じ敵への連続ヒットは連射しすぎないようクールダウンを設ける
-  updateDragonContactDamage(dt, enemies) {
-    const veh = this.mountedVehicle;
-    if (!veh || veh.id !== 'veh_dragon') return;
-    if (!enemies || enemies.length === 0) return;
-    if (!this._dragonContactCooldowns) this._dragonContactCooldowns = new WeakMap();
-    const cooldowns = this._dragonContactCooldowns;
-    const myPos = this.object.position;
-    // ドラゴン自体が大型なので接触判定は少し大きめに
-    const myRadius = 2.4;
-    const dmgPerHit = 25;
-    const hitCooldown = 0.6; // 秒。同一敵への連射抑止
-    for (const en of enemies) {
-      if (!en || !en.alive || !en.object) continue;
-      const prev = cooldowns.get(en) || 0;
-      const nextCd = prev - dt;
-      if (nextCd > 0) {
-        cooldowns.set(en, nextCd);
-        continue;
-      }
-      const ep = en.object.position;
-      const dx = ep.x - myPos.x;
-      const dy = ep.y - myPos.y;
-      const dz = ep.z - myPos.z;
-      const rr = myRadius + (en.radius || 2.0);
-      if (dx * dx + dy * dy + dz * dz <= rr * rr) {
-        en.takeDamage(dmgPerHit);
-        cooldowns.set(en, hitCooldown);
-      } else if (prev > 0) {
-        cooldowns.set(en, 0);
-      }
-    }
-  }
-
   updateDragonExhaustFire(dt, scene, enemies) {
     const veh = this.mountedVehicle;
     if (!veh || !veh.dragonExhaustFire) {
@@ -1993,24 +1958,10 @@ export class Player {
     // 位置更新
     this.object.position.addScaledVector(this.velocity, dt);
 
-    // カバー/建物との水平衝突（プレイヤーが壁に埋まらないように押し出す）
-    const _covers = (typeof window !== 'undefined') ? window.__covers : null;
-    if (_covers) {
-      _covers.resolveXZ(this.object.position, 0.9);
-    }
-
     // 地形高さをサンプリングして床にする(なぞり移動)
     // 大型乗り物(ドラゴン等)は rideHeight 分だけ高く浮き、車体が地面に埋まらない
     const groundY = getTerrainHeightAt(this.object.position.x, this.object.position.z);
-    let minY = groundY + 1 + (this.mountedVehicle?.rideHeight ?? 0);
-    // プラットフォーム/階段の上に立てるようにする
-    if (_covers) {
-      const topSupport = _covers.resolveStandOn(this.object.position, 0.9);
-      if (topSupport > -Infinity) {
-        const platY = topSupport + 1 + (this.mountedVehicle?.rideHeight ?? 0);
-        if (platY > minY) minY = platY;
-      }
-    }
+    const minY = groundY + 1 + (this.mountedVehicle?.rideHeight ?? 0);
     if (this.object.position.y < minY) {
       this.object.position.y = minY;
       if (this.velocity.y < 0) this.velocity.y = 0;

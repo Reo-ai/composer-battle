@@ -8,9 +8,9 @@
 
 import * as THREE from 'three';
 
-// ステージを大幅拡張（260→900→1800、約7倍）、ポリゴン密度も増（任天堂/CAPCOM級クオリティへ）
-const TERRAIN_SIZE = 1800;
-const TERRAIN_SEGS = 900;  // 拡張に合わせて密度も増（2m/segment 相当 — 2x拡張時のパフォーマンス配慮）
+// ステージを大幅拡張（260→900→1800→2700、FPS化に合わせ地上面積を 1.5 倍に）
+const TERRAIN_SIZE = 2700;
+const TERRAIN_SEGS = 1350;  // 密度は 2m/segment を維持（1800→2700 に比例）
 const ARENA_RADIUS = 14;
 const ARENA_CENTER = new THREE.Vector2(0, 0);
 // ステージ境界（外周のアイテム散布などで使う）
@@ -91,7 +91,7 @@ export function buildStage(scene) {
   const SPIRE_COUNT = 56;
   for (let i = 0; i < SPIRE_COUNT; i++) {
     const a = (i / SPIRE_COUNT) * Math.PI * 2 + (Math.random() - 0.5) * 0.35;
-    const r = 40 + Math.random() * 360; // 40〜400
+    const r = 60 + Math.random() * 540; // 60〜600 (1.5倍拡張)
     const x = Math.cos(a) * r;
     const z = Math.sin(a) * r;
     if (insideArena(x, z, 3)) continue;
@@ -101,7 +101,7 @@ export function buildStage(scene) {
   // ---- 枯れ木（広範囲に散布） ----
   const swayables = [];
   for (let i = 0; i < 90; i++) {
-    const p = randomPositionAvoidingArena(20, 420);
+    const p = randomPositionAvoidingArena(30, 630);
     const tree = createDeadTree(p.x, p.z);
     scene.add(tree);
     swayables.push({ obj: tree, phase: Math.random() * Math.PI * 2, amp: 0.025 });
@@ -109,13 +109,13 @@ export function buildStage(scene) {
 
   // ---- 岩塊（地面に多数散らす） ----
   for (let i = 0; i < 240; i++) {
-    const p = randomPositionAvoidingArena(18, 430);
+    const p = randomPositionAvoidingArena(27, 645);
     scene.add(createBoulder(p.x, p.z));
   }
 
   // ---- 乾いた草・茂み ----
   for (let i = 0; i < 420; i++) {
-    const p = randomPositionAvoidingArena(18, 430);
+    const p = randomPositionAvoidingArena(27, 645);
     const brush = createDryBrush(p.x, p.z);
     scene.add(brush);
     swayables.push({ obj: brush, phase: Math.random() * Math.PI * 2, amp: 0.05 });
@@ -126,7 +126,7 @@ export function buildStage(scene) {
   const CLOUD_COUNT = 70;
   for (let i = 0; i < CLOUD_COUNT; i++) {
     const a = (i / CLOUD_COUNT) * Math.PI * 2 + Math.random() * 0.45;
-    const r = 80 + Math.random() * 280; // 80〜360
+    const r = 120 + Math.random() * 420; // 120〜540 (1.5倍拡張)
     const y = 45 + Math.random() * 55;   // 45〜100
     const cloud = createCloud();
     cloud.position.set(Math.cos(a) * r, y, Math.sin(a) * r);
@@ -159,7 +159,7 @@ export function buildStage(scene) {
     birds.push({
       obj: bird,
       angle: Math.random() * Math.PI * 2,
-      radius: 60 + Math.random() * 300, // 60〜360
+      radius: 90 + Math.random() * 450, // 90〜540 (1.5倍拡張)
       height: 28 + Math.random() * 50,
       speed: 0.05 + Math.random() * 0.08,
       flapPhase: Math.random() * Math.PI * 2,
@@ -313,8 +313,8 @@ function terrainHeightAt(x, z) {
   // 中央のフラット化
   h *= flatness;
 
-  // 遠方ほど隆起（地平の山並みへ繋ぐ）— ステージ 2 倍化に合わせ、平地エリアも 2 倍に拡張
-  const edge = Math.max(0, (d - 280) / 440);
+  // 遠方ほど隆起（地平の山並みへ繋ぐ）— 1.5 倍拡張に合わせ、平地エリアと立ち上がり距離も比例
+  const edge = Math.max(0, (d - 420) / 660);
   h += edge * edge * 22.0;
 
   return h;
@@ -324,7 +324,7 @@ function terrainHeightAt(x, z) {
 
 function createSkyDome() {
   // ステージ拡張に合わせて空ドームも拡大、ポリゴンも増（滑らかなグラデ）
-  const geo = new THREE.SphereGeometry(1100, 64, 40);
+  const geo = new THREE.SphereGeometry(1650, 64, 40);
   const mat = new THREE.ShaderMaterial({
     side: THREE.BackSide,
     depthWrite: false,
@@ -379,7 +379,7 @@ function createSkyDome() {
 function createSunDisc(sunPos) {
   const group = new THREE.Group();
   const dir = sunPos.clone().normalize();
-  const placement = dir.multiplyScalar(900);
+  const placement = dir.multiplyScalar(1350);
 
   const sunMat = new THREE.SpriteMaterial({
     color: 0xfff0c2,
@@ -446,7 +446,7 @@ function createLensFlare(sunPos) {
       blending: THREE.AdditiveBlending,
     }));
     sprite.scale.set(o.size, o.size, 1);
-    sprite.position.copy(dir).multiplyScalar(880 * o.d);
+    sprite.position.copy(dir).multiplyScalar(1320 * o.d);
     sprite.renderOrder = -2;
     group.add(sprite);
   }
@@ -462,10 +462,10 @@ function createHazePlanes() {
 function createMountainLayers() {
   const group = new THREE.Group();
   const layers = [
-    { dist: 380, h: 70,  count: 64, color: 0x3a2530, opacity: 1.0 },
-    { dist: 500, h: 100, count: 54, color: 0x4a2a3a, opacity: 0.85 },
-    { dist: 640, h: 140, count: 44, color: 0x5a3040, opacity: 0.70 },
-    { dist: 800, h: 180, count: 36, color: 0x6a3a48, opacity: 0.55 },
+    { dist: 570,  h: 70,  count: 64, color: 0x3a2530, opacity: 1.0 },
+    { dist: 750,  h: 100, count: 54, color: 0x4a2a3a, opacity: 0.85 },
+    { dist: 960,  h: 140, count: 44, color: 0x5a3040, opacity: 0.70 },
+    { dist: 1200, h: 180, count: 36, color: 0x6a3a48, opacity: 0.55 },
   ];
   for (const l of layers) {
     const mat = new THREE.MeshBasicMaterial({
@@ -1101,9 +1101,9 @@ function createDustStorm() {
   const count = 1800;
   const positions = new Float32Array(count * 3);
   for (let i = 0; i < count; i++) {
-    positions[i * 3 + 0] = (Math.random() - 0.5) * 560;
+    positions[i * 3 + 0] = (Math.random() - 0.5) * 840;
     positions[i * 3 + 1] = Math.random() * 55;
-    positions[i * 3 + 2] = (Math.random() - 0.5) * 560;
+    positions[i * 3 + 2] = (Math.random() - 0.5) * 840;
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));

@@ -12,11 +12,12 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { CHARACTERS } from './characters.js';
 import { Input } from './input.js';
 import { Player } from './player.js';
-import { ThirdPersonCamera } from './camera.js';
+import { ThirdPersonCamera, FirstPersonCamera } from './camera.js';
 import { ProjectileManager } from './projectile.js';
 import { Enemy } from './enemy.js';
 import { HUD } from './ui.js';
 import { buildStage, STAGE_BOUNDS, getTerrainHeightAt } from './stage.js';
+import { buildCoverLayout } from './cover.js';
 import { EffectManager } from './effects.js';
 import { AudioBus } from './audio.js';
 import { ItemManager, SHIELD_CATALOG, HEAL_CATALOG } from './items.js';
@@ -32,6 +33,221 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 document.body.appendChild(renderer.domElement);
+
+// ---- FPS 用クロスヘア（デフォルト非表示、setGameMode('fps') で表示） ----
+const fpsCrosshair = document.createElement('div');
+fpsCrosshair.id = 'fps-crosshair';
+fpsCrosshair.style.cssText = [
+  'position:fixed', 'left:50%', 'top:50%', 'transform:translate(-50%,-50%)',
+  'width:22px', 'height:22px', 'pointer-events:none', 'z-index:9998',
+  'display:none',
+].join(';');
+// SVG で細めの十字＋中央ドット
+fpsCrosshair.innerHTML = `
+  <svg viewBox="0 0 22 22" width="22" height="22" xmlns="http://www.w3.org/2000/svg">
+    <line x1="11" y1="2" x2="11" y2="8" stroke="rgba(255,255,255,0.9)" stroke-width="1.6"/>
+    <line x1="11" y1="14" x2="11" y2="20" stroke="rgba(255,255,255,0.9)" stroke-width="1.6"/>
+    <line x1="2" y1="11" x2="8" y2="11" stroke="rgba(255,255,255,0.9)" stroke-width="1.6"/>
+    <line x1="14" y1="11" x2="20" y2="11" stroke="rgba(255,255,255,0.9)" stroke-width="1.6"/>
+    <circle cx="11" cy="11" r="1.1" fill="rgba(255,255,255,0.95)"/>
+  </svg>
+`;
+document.body.appendChild(fpsCrosshair);
+
+// ---- FPS 用 HUD (弾数/リロード) ----
+const fpsAmmoHud = document.createElement('div');
+fpsAmmoHud.id = 'fps-ammo';
+fpsAmmoHud.style.cssText = [
+  'position:fixed', 'right:22px', 'bottom:22px',
+  'padding:8px 14px', 'border-radius:8px',
+  'background:rgba(10,14,22,0.55)',
+  'color:#eaf3ff', 'font:600 20px/1.2 system-ui,-apple-system,sans-serif',
+  'letter-spacing:0.06em', 'pointer-events:none', 'z-index:9998',
+  'display:none', 'text-shadow:0 1px 2px rgba(0,0,0,0.5)',
+  'border:1px solid rgba(180,220,255,0.25)',
+].join(';');
+fpsAmmoHud.textContent = '30 / 30';
+document.body.appendChild(fpsAmmoHud);
+
+// ---- FPS 用 HP バー ----
+const fpsHpHud = document.createElement('div');
+fpsHpHud.id = 'fps-hp';
+fpsHpHud.style.cssText = [
+  'position:fixed', 'left:22px', 'bottom:22px',
+  'width:240px', 'padding:8px 10px 10px', 'border-radius:8px',
+  'background:rgba(10,14,22,0.55)',
+  'color:#eaf3ff', 'font:600 13px/1.2 system-ui,-apple-system,sans-serif',
+  'letter-spacing:0.08em', 'pointer-events:none', 'z-index:9998',
+  'display:none', 'text-shadow:0 1px 2px rgba(0,0,0,0.5)',
+  'border:1px solid rgba(180,220,255,0.25)',
+].join(';');
+fpsHpHud.innerHTML = `
+  <div style="display:flex;justify-content:space-between;margin-bottom:5px;">
+    <span>HP</span><span id="fps-hp-val">100 / 100</span>
+  </div>
+  <div style="height:8px;background:rgba(0,0,0,0.35);border-radius:4px;overflow:hidden;">
+    <div id="fps-hp-bar" style="height:100%;width:100%;background:linear-gradient(90deg,#4fd1a0,#8ff3c8);transition:width 0.18s ease-out;"></div>
+  </div>
+`;
+document.body.appendChild(fpsHpHud);
+const fpsHpBar = fpsHpHud.querySelector('#fps-hp-bar');
+const fpsHpVal = fpsHpHud.querySelector('#fps-hp-val');
+
+// ---- FPS 用 武器スロット (数字キー1-3 でキャラ=武器切替) ----
+const fpsWeaponHud = document.createElement('div');
+fpsWeaponHud.id = 'fps-weapon';
+fpsWeaponHud.style.cssText = [
+  'position:fixed', 'left:50%', 'bottom:22px',
+  'transform:translateX(-50%)',
+  'display:none', 'gap:10px', 'z-index:9998',
+  'pointer-events:none',
+].join(';');
+// dataset 定義: FPS用武器スロット(既存のキャラID流用)
+const FPS_WEAPON_SLOTS = [
+  { id: 'cat_neko', key: '1', label: 'ネコ' },
+  { id: 'sensei',   key: '2', label: 'センセイ' },
+  { id: 'owl_oto',  key: '3', label: 'オト' },
+];
+for (const s of FPS_WEAPON_SLOTS) {
+  const slot = document.createElement('div');
+  slot.dataset.charid = s.id;
+  slot.style.cssText = [
+    'padding:6px 10px', 'min-width:76px', 'text-align:center',
+    'border-radius:8px', 'background:rgba(10,14,22,0.5)',
+    'color:#dfe8ff', 'font:600 12px/1.2 system-ui,-apple-system,sans-serif',
+    'letter-spacing:0.06em', 'border:1px solid rgba(180,220,255,0.25)',
+    'text-shadow:0 1px 2px rgba(0,0,0,0.5)',
+  ].join(';');
+  slot.innerHTML = `<div style="font-size:10px;opacity:0.7;">[${s.key}]</div><div style="font-size:13px;">${s.label}</div>`;
+  fpsWeaponHud.appendChild(slot);
+}
+document.body.appendChild(fpsWeaponHud);
+function updateFpsWeaponHud() {
+  for (const slot of fpsWeaponHud.children) {
+    const isActive = slot.dataset.charid === currentCharId;
+    slot.style.background = isActive
+      ? 'rgba(90,170,255,0.35)'
+      : 'rgba(10,14,22,0.5)';
+    slot.style.borderColor = isActive
+      ? 'rgba(180,220,255,0.9)'
+      : 'rgba(180,220,255,0.25)';
+    slot.style.boxShadow = isActive
+      ? '0 0 12px rgba(120,190,255,0.5)'
+      : 'none';
+  }
+}
+
+// ---- FPS用ミニマップ（右上・80unit範囲・視線上向き） ----
+const fpsMinimap = document.createElement('canvas');
+fpsMinimap.id = 'fps-minimap';
+fpsMinimap.width = 180;
+fpsMinimap.height = 180;
+fpsMinimap.style.cssText = [
+  'position:fixed', 'right:22px', 'top:22px',
+  'width:180px', 'height:180px',
+  'border-radius:50%',
+  'background:rgba(8,12,20,0.5)',
+  'border:1px solid rgba(180,220,255,0.3)',
+  'box-shadow:0 2px 8px rgba(0,0,0,0.4)',
+  'pointer-events:none', 'z-index:9998', 'display:none',
+].join(';');
+document.body.appendChild(fpsMinimap);
+const fpsMinimapCtx = fpsMinimap.getContext('2d');
+const FPS_MINIMAP_RANGE = 80; // ワールド単位半径
+function drawFpsMinimap() {
+  const cx = fpsMinimap.width / 2;
+  const cy = fpsMinimap.height / 2;
+  const scale = (fpsMinimap.width / 2 - 8) / FPS_MINIMAP_RANGE;
+  const ctx = fpsMinimapCtx;
+  ctx.clearRect(0, 0, fpsMinimap.width, fpsMinimap.height);
+  // 円形クリップ
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, fpsMinimap.width / 2 - 2, 0, Math.PI * 2);
+  ctx.clip();
+  // 背景ゲージ（同心円）
+  ctx.strokeStyle = 'rgba(180,220,255,0.12)';
+  ctx.lineWidth = 1;
+  for (let r = 20; r < fpsMinimap.width / 2; r += 20) {
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+  }
+  if (!player) { ctx.restore(); return; }
+  const plX = player.object.position.x;
+  const plZ = player.object.position.z;
+  const yaw = player.yaw ?? 0;
+  const sinY = Math.sin(yaw);
+  const cosY = Math.cos(yaw);
+  // ワールド差分をビュー座標(前=上)に変換して描画
+  //   view forward = (-sin(yaw), -cos(yaw)) を上向き(-Y方向)にする
+  //   view right   = ( cos(yaw), -sin(yaw)) を右向き(+X方向)にする
+  const toView = (wx, wz) => {
+    const dx = wx - plX;
+    const dz = wz - plZ;
+    const rx = dx * cosY + dz * (-sinY);
+    const forward = dx * (-sinY) + dz * (-cosY);
+    return { x: cx + rx * scale, y: cy - forward * scale };
+  };
+  // カバー(遮蔽物)を灰色で描画
+  if (window.__covers?.colliders) {
+    ctx.fillStyle = 'rgba(160,190,220,0.35)';
+    ctx.strokeStyle = 'rgba(200,220,255,0.55)';
+    ctx.lineWidth = 1;
+    for (const box of window.__covers.colliders) {
+      const dx = (box.min.x + box.max.x) * 0.5 - plX;
+      const dz = (box.min.z + box.max.z) * 0.5 - plZ;
+      if (dx * dx + dz * dz > FPS_MINIMAP_RANGE * FPS_MINIMAP_RANGE * 1.6) continue;
+      const corners = [
+        toView(box.min.x, box.min.z),
+        toView(box.max.x, box.min.z),
+        toView(box.max.x, box.max.z),
+        toView(box.min.x, box.max.z),
+      ];
+      ctx.beginPath();
+      ctx.moveTo(corners[0].x, corners[0].y);
+      for (let i = 1; i < 4; i++) ctx.lineTo(corners[i].x, corners[i].y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+  }
+  // 敵を赤いドットで描画
+  ctx.fillStyle = '#ff5252';
+  ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+  ctx.lineWidth = 1;
+  for (const e of enemies) {
+    if (!e.alive) continue;
+    const dx = e.object.position.x - plX;
+    const dz = e.object.position.z - plZ;
+    if (dx * dx + dz * dz > FPS_MINIMAP_RANGE * FPS_MINIMAP_RANGE) continue;
+    const p = toView(e.object.position.x, e.object.position.z);
+    ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  }
+  // プレイヤーを中央に緑三角（常に上向き = 進行方向）
+  ctx.fillStyle = '#7effa6';
+  ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - 8);
+  ctx.lineTo(cx - 6, cy + 6);
+  ctx.lineTo(cx + 6, cy + 6);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+  // 外周の枠
+  ctx.strokeStyle = 'rgba(180,220,255,0.4)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(cx, cy, fpsMinimap.width / 2 - 2, 0, Math.PI * 2);
+  ctx.stroke();
+  // N (方角) 表示
+  ctx.font = '10px system-ui,-apple-system,sans-serif';
+  ctx.fillStyle = 'rgba(230,240,255,0.7)';
+  ctx.textAlign = 'center';
+  // 北=ワールド +Z 方向。プレイヤー相対のビュー座標で N の位置を算出
+  const nView = toView(plX + 0, plZ + FPS_MINIMAP_RANGE * 0.85);
+  ctx.fillText('N', nView.x, Math.max(10, Math.min(fpsMinimap.height - 4, nView.y + 3)));
+}
 
 // ---- シーン ----
 const scene = new THREE.Scene();
@@ -103,6 +319,80 @@ renderer.toneMappingExposure = 1.05;
 // ---- ステージ（空・地形・湖・山・木・雲・鳥・浮遊塵） ----
 const stage = buildStage(scene);
 
+// ---- カバー/建物レイアウト（FPS 用の遮蔽物・L字廊下・高台） ----
+const covers = buildCoverLayout(scene);
+// 他モジュールから参照できるようにグローバルに置いておく（暫定）
+if (typeof window !== 'undefined') window.__covers = covers;
+
+// ---- 高台の目印になる発光ビーコン旗 ----
+// カバーの platform 位置に旗ポールと発光ヘッドを立てる
+const beacons = []; // { headMat, headMesh, glow, flag, baseY, phase }
+{
+  const platformBoxes = covers.colliders.filter(
+    (b) => b.userData && b.userData.type === 'platform',
+  );
+  const poleMat = new THREE.MeshStandardMaterial({
+    color: 0x2a2a30, roughness: 0.5, metalness: 0.7,
+  });
+  const flagColors = [0xff4d6d, 0x4dc7ff]; // 東側=赤、西側=青
+  for (let i = 0; i < platformBoxes.length; i++) {
+    const box = platformBoxes[i];
+    const cx = (box.min.x + box.max.x) * 0.5;
+    const cz = (box.min.z + box.max.z) * 0.5;
+    const topY = box.max.y;
+    const flagColor = flagColors[i % flagColors.length];
+    const group = new THREE.Group();
+    group.position.set(cx, topY, cz);
+    scene.add(group);
+    // ポール
+    const poleGeom = new THREE.CylinderGeometry(0.08, 0.08, 4.2, 8);
+    const pole = new THREE.Mesh(poleGeom, poleMat);
+    pole.position.y = 2.1;
+    pole.castShadow = true;
+    group.add(pole);
+    // 旗（板ポリ）
+    const flagGeom = new THREE.PlaneGeometry(1.6, 1.0);
+    const flagMat = new THREE.MeshStandardMaterial({
+      color: flagColor, side: THREE.DoubleSide,
+      emissive: flagColor, emissiveIntensity: 0.4, roughness: 0.7,
+    });
+    const flag = new THREE.Mesh(flagGeom, flagMat);
+    flag.position.set(0.8, 3.7, 0);
+    group.add(flag);
+    // 発光ヘッド（球）
+    const headMat = new THREE.MeshStandardMaterial({
+      color: flagColor, emissive: flagColor, emissiveIntensity: 1.8,
+      roughness: 0.3, metalness: 0.1,
+    });
+    const headGeom = new THREE.SphereGeometry(0.28, 12, 12);
+    const head = new THREE.Mesh(headGeom, headMat);
+    head.position.y = 4.25;
+    group.add(head);
+    // ハロー（半透明スプライト風の板）
+    const glowMat = new THREE.SpriteMaterial({
+      color: flagColor, transparent: true, opacity: 0.55,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    const glow = new THREE.Sprite(glowMat);
+    glow.position.y = 4.25;
+    glow.scale.set(1.6, 1.6, 1);
+    group.add(glow);
+    beacons.push({ headMat, glowMat, flag, group, phase: Math.random() * Math.PI * 2 });
+  }
+}
+function updateBeacons(t) {
+  for (const b of beacons) {
+    const s = 0.5 + 0.5 * Math.sin(t * 2.4 + b.phase);
+    b.headMat.emissiveIntensity = 1.2 + s * 1.4;
+    b.glowMat.opacity = 0.35 + s * 0.35;
+    b.glowMat.needsUpdate = true;
+    const gs = 1.4 + s * 0.6;
+    b.group.children[3].scale.set(gs, gs, 1); // glow は 4番目に追加
+    // 旗を軽く揺らす
+    b.flag.rotation.y = Math.sin(t * 1.6 + b.phase) * 0.25;
+  }
+}
+
 // ---- プレイヤー ----
 let currentCharId = 'cat_neko';
 let playerChar = CHARACTERS[currentCharId].create();
@@ -121,7 +411,102 @@ const player = new Player(playerChar, {
   maxHp: 600,
   attackSetId: currentCharId,
 });
-const followCam = new ThirdPersonCamera(camera, player);
+// ---- ゲームモード切替 ----
+// 'action' = 三人称アクション（既存モード）
+// 'fps'    = 一人称視点 FPS モード（後続タスクで射撃・クロスヘア等を実装）
+// F キーでいつでも切り替え可能。
+let gameMode = 'action';
+const thirdPersonCam = new ThirdPersonCamera(camera, player);
+const firstPersonCam = new FirstPersonCamera(camera, player);
+let followCam = thirdPersonCam;
+
+// ---- FPS 射撃状態（弾数/リロード/連射クールダウン） ----
+const FPS_MAG_SIZE = 30;
+const FPS_RELOAD_TIME = 1.5;    // 秒
+const FPS_FIRE_INTERVAL = 0.085; // 秒（連射間隔 = 約 700rpm）
+const FPS_BULLET_SPEED = 120;    // 単位/秒（既存 40 より高速化してヒットスキャン感を出す）
+const FPS_BULLET_RADIUS = 0.18;
+const FPS_BULLET_DMG = 12;       // ボディヒット時のダメージ（既存 BULLET_DAMAGE=10 と近い値）
+const FPS_HEADSHOT_MUL = 2.0;    // ヘッドショット倍率
+let fpsAmmo = FPS_MAG_SIZE;
+let fpsReloadTimer = 0;
+let fpsIsReloading = false;
+let fpsFireCooldown = 0;
+// FPS 用足音カデンス
+let fpsFootstepTimer = 0;
+let fpsPrevPos = new THREE.Vector3();
+// リコイル & スプレッド（連射で拡散が広がり、撃たないと減衰）
+const FPS_SPREAD_MIN = 0.006;   // 最小拡散(ラジアン)
+const FPS_SPREAD_MAX = 0.045;   // 最大拡散(ラジアン)
+const FPS_SPREAD_ADD = 0.010;   // 1発ごとの増加
+const FPS_SPREAD_DECAY = 0.06;  // 秒あたり減衰量
+let fpsSpread = FPS_SPREAD_MIN;
+// リコイル(ピッチ跳ね上げ) — 発砲時に加算、update で減衰
+const FPS_RECOIL_KICK = 0.032;    // 1発ごとのピッチ跳ね(ラジアン ≒ 1.8度)
+const FPS_RECOIL_DECAY = 12;      // 減衰係数 (e^-k*t)
+let fpsRecoilPitch = 0;
+
+function updateFpsAmmoHud() {
+  if (fpsIsReloading) {
+    fpsAmmoHud.textContent = `RELOAD… ${Math.max(0, fpsReloadTimer).toFixed(1)}s`;
+  } else {
+    fpsAmmoHud.textContent = `${fpsAmmo} / ${FPS_MAG_SIZE}`;
+  }
+}
+
+function updateFpsHpHud() {
+  const hp = Math.max(0, Math.round(player.hp ?? 0));
+  const max = Math.max(1, Math.round(player.maxHp ?? 100));
+  const ratio = Math.max(0, Math.min(1, hp / max));
+  fpsHpVal.textContent = `${hp} / ${max}`;
+  fpsHpBar.style.width = (ratio * 100).toFixed(1) + '%';
+  // 低 HP で色を赤めに
+  if (ratio < 0.35) {
+    fpsHpBar.style.background = 'linear-gradient(90deg,#e14b4b,#ff8080)';
+  } else if (ratio < 0.65) {
+    fpsHpBar.style.background = 'linear-gradient(90deg,#e6b04a,#ffd57a)';
+  } else {
+    fpsHpBar.style.background = 'linear-gradient(90deg,#4fd1a0,#8ff3c8)';
+  }
+}
+
+function startFpsReload() {
+  if (fpsIsReloading) return;
+  if (fpsAmmo >= FPS_MAG_SIZE) return;
+  fpsIsReloading = true;
+  fpsReloadTimer = FPS_RELOAD_TIME;
+  updateFpsAmmoHud();
+}
+
+function setGameMode(mode) {
+  if (mode !== 'action' && mode !== 'fps') return;
+  if (gameMode === mode) return;
+  gameMode = mode;
+  followCam = (mode === 'fps') ? firstPersonCam : thirdPersonCam;
+  // プレイヤーモデルの表示切替（一人称のときは自機を非表示）
+  if (playerChar) playerChar.visible = (mode !== 'fps');
+  // FPS 用 UI の表示切替
+  fpsCrosshair.style.display = (mode === 'fps') ? 'block' : 'none';
+  fpsAmmoHud.style.display = (mode === 'fps') ? 'block' : 'none';
+  fpsHpHud.style.display = (mode === 'fps') ? 'block' : 'none';
+  fpsMinimap.style.display = (mode === 'fps') ? 'block' : 'none';
+  fpsWeaponHud.style.display = (mode === 'fps') ? 'flex' : 'none';
+  if (mode === 'fps') {
+    updateFpsAmmoHud();
+    updateFpsHpHud();
+    drawFpsMinimap();
+    updateFpsWeaponHud();
+  }
+}
+
+// F キー = 視点切替 / R キー = FPS 中のリロード
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'KeyF' && !e.repeat) {
+    setGameMode(gameMode === 'fps' ? 'action' : 'fps');
+  } else if (e.code === 'KeyR' && !e.repeat && gameMode === 'fps') {
+    startFpsReload();
+  }
+});
 
 // ---- 弾管理 ----
 const projectiles = new ProjectileManager(scene);
@@ -295,6 +680,8 @@ function switchCharacter(id) {
   if (hud.updateCharacterHelp) {
     hud.updateCharacterHelp(player.getAttackLabels(), CHARACTERS[id].name);
   }
+  // FPS 用武器スロットHUDの現在選択を更新
+  updateFpsWeaponHud();
 }
 window.addEventListener('keydown', (e) => {
   // 初回入力でWebAudioを起動（ブラウザのautoplayポリシー対応）
@@ -489,10 +876,17 @@ function resolveProjectiles() {
         }
       }
       p.alive = false;
-      // ヒット位置で火花＋SE
+      // ヒット位置で火花＋SE（FPSヘッドショットなら追加でチーン音）
       const hitPos = p.object ? p.object.position.clone() : e.object.position.clone();
       effects.spawnHitBurst(hitPos, player.bulletColor);
-      audio.hit();
+      if (p.headshot && audio.headshotPing) {
+        audio.headshotPing();
+        audio.impactHit?.();
+      } else if (audio.impactHit) {
+        audio.impactHit();
+      } else {
+        audio.hit();
+      }
       // 撃破判定
       if (wasAlive && !e.alive) {
         effects.spawnDeathExplosion(e.object.position.clone(), 0xff6a4d);
@@ -524,6 +918,8 @@ function animate() {
 
   // ステージはどんな状態でも演出として動かす（カメラ越しの空気感）
   stage.update(dt);
+  covers.update(dt);
+  updateBeacons(clock.elapsedTime);
 
   if (gameState === 'paused') {
     // 何も進めない。カメラは現状維持で描画のみ。
@@ -547,6 +943,56 @@ function animate() {
   player.update(dt, input);
   followCam.update(dt);
 
+  // FPS モードのリロード/連射クールダウン進行
+  if (gameMode === 'fps') {
+    if (fpsFireCooldown > 0) fpsFireCooldown = Math.max(0, fpsFireCooldown - dt);
+    // スプレッドの自然減衰
+    if (fpsSpread > FPS_SPREAD_MIN) {
+      fpsSpread = Math.max(FPS_SPREAD_MIN, fpsSpread - FPS_SPREAD_DECAY * dt);
+    }
+    // リコイル(ピッチ)の減衰: 蓄積分を少しずつプレイヤーピッチから戻す
+    if (fpsRecoilPitch > 0.0005) {
+      const dec = fpsRecoilPitch * (1 - Math.exp(-FPS_RECOIL_DECAY * dt));
+      fpsRecoilPitch -= dec;
+      player.pitch = Math.max(-Math.PI / 3, player.pitch - dec * 0.6);
+    } else if (fpsRecoilPitch !== 0) {
+      fpsRecoilPitch = 0;
+    }
+    if (fpsIsReloading) {
+      fpsReloadTimer -= dt;
+      if (fpsReloadTimer <= 0) {
+        fpsIsReloading = false;
+        fpsReloadTimer = 0;
+        fpsAmmo = FPS_MAG_SIZE;
+      }
+      updateFpsAmmoHud();
+    }
+    // HP バー更新（毎フレーム軽量に）
+    updateFpsHpHud();
+    // ミニマップ更新
+    drawFpsMinimap();
+
+    // 足音: プレイヤーの水平移動量から歩幅を検出して鳴らす
+    if (player && player.alive) {
+      const pp = player.object.position;
+      const dxz = Math.hypot(pp.x - fpsPrevPos.x, pp.z - fpsPrevPos.z);
+      fpsPrevPos.copy(pp);
+      // 空中では鳴らない: y 速度が大きい/地面から離れているケースは省略（音量で吸収）
+      // 移動速度に比例して間隔短縮（0.32s〜0.55s）
+      if (dxz > 0.02) {
+        fpsFootstepTimer -= dt;
+        if (fpsFootstepTimer <= 0) {
+          audio.footstep?.();
+          // dt=1/60 で dxz が 0.15 くらいなら 0.35s、遅ければ 0.55s
+          const speedFactor = Math.min(1, dxz / (dt * 8));
+          fpsFootstepTimer = 0.55 - 0.23 * speedFactor;
+        }
+      } else {
+        fpsFootstepTimer = 0.1;
+      }
+    }
+  }
+
   if (gameState === 'playing') {
     // Z攻撃 — 装備武器の種類で動作が変わる
     //   剣  : 剣の振り（軽攻撃を発動）
@@ -554,6 +1000,92 @@ function animate() {
     //   杖  : 誘導付きの魔法弾（炎玉スタイル）
     //   素手: 従来の音符弾
     if (input.isDown('KeyZ')) {
+      // ---- FPS モード分岐: カメラ位置から真直ぐ発射 + ヒットスキャンでヘッドショット判定 ----
+      if (gameMode === 'fps') {
+        if (!fpsIsReloading && fpsAmmo > 0 && fpsFireCooldown <= 0) {
+          // カメラの実際の向きを使う（yaw/pitch と一致するが行列由来なので安全）
+          const dir = new THREE.Vector3();
+          camera.getWorldDirection(dir);
+          const origin = camera.position.clone();
+
+          // ---- スプレッド適用: 発射方向を円錐内でランダム化 ----
+          {
+            const ang = Math.random() * Math.PI * 2;
+            const rad = Math.sqrt(Math.random()) * fpsSpread;
+            const up = new THREE.Vector3(0, 1, 0);
+            const right = new THREE.Vector3().crossVectors(dir, up).normalize();
+            if (right.lengthSq() < 1e-6) right.set(1, 0, 0);
+            const trueUp = new THREE.Vector3().crossVectors(right, dir).normalize();
+            dir.addScaledVector(right, Math.cos(ang) * rad);
+            dir.addScaledVector(trueUp, Math.sin(ang) * rad);
+            dir.normalize();
+          }
+
+          // ヒットスキャン: 直進レイと各敵ヒットスフィアの最近点距離を計算し、
+          // 最も近い敵にヒット。ヘッドゾーン（敵中心から上に radius*1.6 の高さ帯）で 2 倍ダメージ。
+          let bestT = Infinity;
+          let bestEnemy = null;
+          let bestHead = false;
+          const MAX_RANGE = 200;
+          // 壁（カバー）にレイが最初に当たる距離を求めておく
+          const wallT = covers.raycastNearestT(origin, dir, MAX_RANGE) ?? MAX_RANGE;
+          for (const e of enemies) {
+            if (!e.alive) continue;
+            const centerBody = e.object.position.clone();
+            centerBody.y += e.radius * 0.9; // ボディ中心（腹〜胸あたり）
+            const centerHead = e.object.position.clone();
+            centerHead.y += e.radius * 2.2; // ヘッド中心（頭部想定）
+            // レイ上の最近点までのパラメータ t（>0 のとき前方）
+            const to = centerBody.clone().sub(origin);
+            const t = to.dot(dir);
+            if (t < 0 || t > MAX_RANGE) continue;
+            // 壁の手前より奥ならヒットしない（遮蔽）
+            if (t > wallT) continue;
+            const closest = origin.clone().addScaledVector(dir, t);
+            const dBody = closest.distanceTo(centerBody);
+            const dHead = closest.distanceTo(centerHead);
+            const headHit = dHead < e.radius * 0.65;
+            const bodyHit = dBody < e.radius * 1.05;
+            if (!headHit && !bodyHit) continue;
+            if (t < bestT) {
+              bestT = t;
+              bestEnemy = e;
+              bestHead = headHit;
+            }
+          }
+
+          // 弾ダメージを事前決定 → 既存の弾/衝突パイプラインに委ねる
+          const dmg = FPS_BULLET_DMG * (bestHead ? FPS_HEADSHOT_MUL : 1);
+          const color = player.bulletColor;
+          projectiles.spawn(origin, dir, color, player.ownerId, {
+            style: 'note',
+            speed: FPS_BULLET_SPEED,
+            radius: FPS_BULLET_RADIUS,
+            dmg,
+            life: 1.6,
+            inheritVelocity: player.velocity.clone(),
+            headshot: bestHead,
+          });
+
+          // ヘッドショット時は火花を少し豪華に（着弾時のみでなく事前ヒントとしても）
+          if (bestEnemy && bestHead) {
+            const hitPos = origin.clone().addScaledVector(dir, bestT);
+            effects.spawnHitBurst?.(hitPos, 0xffe066);
+          }
+
+          fpsAmmo -= 1;
+          fpsFireCooldown = FPS_FIRE_INTERVAL;
+          // ---- リコイル: ピッチ跳ね上げ + 拡散増加 ----
+          fpsRecoilPitch += FPS_RECOIL_KICK;
+          fpsSpread = Math.min(FPS_SPREAD_MAX, fpsSpread + FPS_SPREAD_ADD);
+          player.pitch = Math.min(Math.PI / 3, player.pitch + FPS_RECOIL_KICK * 0.6);
+          if (audio.gunFire) audio.gunFire({ kind: 'gun' }); else audio.fire?.();
+
+          if (fpsAmmo <= 0) startFpsReload(); // 空撃ちしたら自動リロード
+          updateFpsAmmoHud();
+        }
+        // FPS モード時は既存の武器分岐をスキップ（自機モデル非表示のため）
+      } else {
       const w = player.equippedWeapon;
       const kind = w?.kind;
       if (kind === 'sword') {
@@ -584,6 +1116,7 @@ function animate() {
               style,
               speed,
               radius,
+              inheritVelocity: player.velocity.clone(),
             });
           }
           // fireMul が大きいほど連射が速い（クールダウン短縮）
@@ -600,17 +1133,21 @@ function animate() {
             style,
             radius,
             homing,
+            inheritVelocity: player.velocity.clone(),
           });
           const fireMul = w.fireMul ?? 1;
           player.resetFireCooldown(1 / Math.max(0.1, fireMul));
           if (audio.wandCast) audio.wandCast(w); else audio.fire();
         } else {
           // 素手: 従来の音符弾
-          projectiles.spawn(muzzle, baseDir, player.bulletColor, player.ownerId);
+          projectiles.spawn(muzzle, baseDir, player.bulletColor, player.ownerId, {
+            inheritVelocity: player.velocity.clone(),
+          });
           player.resetFireCooldown(1);
           audio.fire();
         }
       }
+      } // end action-mode Z branch
     }
     // 必殺技（V）— ゲージMAX時のみ発動 / キャラごとに技と演出が異なる
     if (input.isDown('KeyV') && player.isUltimateReady()) {

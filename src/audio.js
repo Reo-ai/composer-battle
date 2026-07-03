@@ -655,4 +655,92 @@ export class AudioBus {
       this._tonePing('triangle', 400, 700, 0.25, 0.25);
     }
   }
+
+  // FPS用: 命中インパクト（打撃感の強いボディ着弾音）
+  //   構成: 鋭いクリック + 低音ドスン + 高域ノイズシズル
+  impactHit() {
+    if (!this._ready || this.muted) return;
+    const t = this.ctx.currentTime;
+    // (1) 短いクリック（先端の"バン"）
+    const click = this.ctx.createOscillator();
+    click.type = 'square';
+    click.frequency.setValueAtTime(1800, t);
+    click.frequency.exponentialRampToValueAtTime(300, t + 0.04);
+    const cg = this.ctx.createGain();
+    cg.gain.setValueAtTime(0.0001, t);
+    cg.gain.exponentialRampToValueAtTime(0.38, t + 0.003);
+    cg.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+    click.connect(cg).connect(this.master);
+    click.start(t); click.stop(t + 0.07);
+    // (2) 低音のドスン（ボディインパクト）
+    const boom = this.ctx.createOscillator();
+    boom.type = 'sine';
+    boom.frequency.setValueAtTime(220, t);
+    boom.frequency.exponentialRampToValueAtTime(70, t + 0.15);
+    const bg = this.ctx.createGain();
+    bg.gain.setValueAtTime(0.0001, t);
+    bg.gain.exponentialRampToValueAtTime(0.42, t + 0.008);
+    bg.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+    boom.connect(bg).connect(this.master);
+    boom.start(t); boom.stop(t + 0.22);
+    // (3) 高域ノイズ（血飛沫的シズル）
+    this._noiseBurst(0.12, 5200, 1200, 1.4, 0.22, 'highpass');
+  }
+
+  // FPS用: ヘッドショットの光る"チーン"音
+  //   構成: 高音の鋭いピン + 二段のベル倍音 + 短い金属残響
+  headshotPing() {
+    if (!this._ready || this.muted) return;
+    const t = this.ctx.currentTime;
+    // (1) 主音: 高音の一撃
+    const bell = this.ctx.createOscillator();
+    bell.type = 'triangle';
+    bell.frequency.setValueAtTime(2400, t);
+    bell.frequency.exponentialRampToValueAtTime(3200, t + 0.05);
+    bell.frequency.exponentialRampToValueAtTime(2200, t + 0.3);
+    const bellG = this.ctx.createGain();
+    bellG.gain.setValueAtTime(0.0001, t);
+    bellG.gain.exponentialRampToValueAtTime(0.45, t + 0.005);
+    bellG.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+    bell.connect(bellG).connect(this.master);
+    bell.start(t); bell.stop(t + 0.36);
+    // (2) 倍音（キラッ感）
+    const harm = this.ctx.createOscillator();
+    harm.type = 'sine';
+    harm.frequency.setValueAtTime(4800, t);
+    harm.frequency.exponentialRampToValueAtTime(3600, t + 0.25);
+    const hg = this.ctx.createGain();
+    hg.gain.setValueAtTime(0.0001, t);
+    hg.gain.exponentialRampToValueAtTime(0.22, t + 0.005);
+    hg.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+    harm.connect(hg).connect(this.master);
+    harm.start(t); harm.stop(t + 0.3);
+    // (3) 前振りのバン（インパクト分も混ぜる）
+    this._noiseBurst(0.05, 4000, 1200, 1.2, 0.28, 'bandpass');
+  }
+
+  // FPS用: 足音（軽い低域ノイズ）
+  footstep() {
+    if (!this._ready || this.muted) return;
+    const t = this.ctx.currentTime;
+    const dur = 0.09;
+    const buf = this.ctx.createBuffer(1, this.ctx.sampleRate * dur, this.ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) {
+      const e = 1 - i / data.length;
+      data[i] = (Math.random() * 2 - 1) * e * e;
+    }
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 380;
+    lp.Q.value = 0.9;
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.18, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.connect(lp).connect(gain).connect(this.master);
+    src.start(t);
+    src.stop(t + dur + 0.01);
+  }
 }

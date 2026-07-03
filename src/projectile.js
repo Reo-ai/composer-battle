@@ -57,6 +57,7 @@ export class Projectile {
     this.ownerId = ownerId; // 自分の弾で自分に当たらないように
     this.style = options.style ?? 'note';     // 'note' = 音符弾 / 'fire' = 炎の玉
     this.healOnHit = options.healOnHit ?? 0;  // ヒット1発で撃った人を回復するHP量（先生のB攻撃など）
+    this.headshot = options.headshot ?? false; // FPSモードでヘッドショット確定弾かどうか（着弾SE切替）
 
     const speed = options.speed ?? SPEED;
     const visualScale = this.radius / RADIUS;
@@ -186,6 +187,16 @@ export class Projectile {
     // 速度ベクトル（dirは正規化前提）
     this.velocity = direction.clone().multiplyScalar(speed);
     this.speed = speed;
+
+    // 射手の速度を継承（高速移動中に弾が置き去りにならないため）
+    // 横ブレを避けるため、狙い方向に沿った前進成分のみ加算する
+    if (options.inheritVelocity) {
+      const iv = options.inheritVelocity;
+      const along = iv.x * direction.x + iv.y * direction.y + iv.z * direction.z;
+      if (along > 0) {
+        this.velocity.addScaledVector(direction, along);
+      }
+    }
   }
 
   update(dt, targets = null) {
