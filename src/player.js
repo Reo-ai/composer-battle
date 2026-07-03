@@ -920,7 +920,7 @@ export class Player {
   // ドラゴン火炎放射: 連続する炎ストリーム(スプライト群) + 円錐範囲ダメージ
   _ensureDragonFlameJet(scene) {
     if (this._dragonFlameJet || !scene) return;
-    const stream = this._buildFlameStream(14, 26);
+    const stream = this._buildFlameStream(18, 34); // 大型ドラゴン用に延長
     scene.add(stream.group);
     this._dragonFlameJet = stream;
     this._dragonFlameDamageAcc = 0;
@@ -933,6 +933,7 @@ export class Player {
 
     if (this.dragonFireTimer <= 0) {
       jet.group.visible = false;
+      if (jet.light) jet.light.intensity = 0;
       return;
     }
 
@@ -943,17 +944,34 @@ export class Player {
     // 前に出るため、火炎起点として遠すぎる(体との間に空白ができる)。
     // ここでは頭〜口の高さ(y+1.6)+ 前方わずか(0.3)を火炎の起点にする。
     const aim = this.getAimDirection();
-    // 前方向(XZのみ・水平): pitchで上下しても起点はブレさせない
-    const fwd = this.getForwardXZ();
+    // ---- 発射起点: ドラゴンの口(モデルの userData.mouth)から出す ----
+    // 口の Object3D をワールド座標に変換して起点にする。
+    // 万一モデルに口が無い場合は従来のプレイヤー口元にフォールバック。
     const basePos = this.object.position.clone();
-    basePos.y += 1.6; // 口元の高さ(2倍スケール後のキャラ)
-    basePos.addScaledVector(fwd, 0.3); // 体の前面(貫通しない程度)
+    const mouth = this.mountedVehicleModel?.userData?.mouth;
+    if (mouth) {
+      mouth.getWorldPosition(basePos);
+      // 口の少し前から出して頭部と炎の重なりを防ぐ
+      basePos.addScaledVector(aim, 0.4);
+    } else {
+      const fwd = this.getForwardXZ();
+      basePos.y += 1.6;
+      basePos.addScaledVector(fwd, 0.3);
+    }
     jet.group.position.copy(basePos);
     const target = basePos.clone().add(aim);
     jet.group.lookAt(target);
-    // 火炎放射を太くする(仕様: 2倍太く)
-    jet.group.scale.set(2.0, 2.0, 1.0);
+    // 大型ドラゴンに合わせて火炎も太く
+    jet.group.scale.set(2.6, 2.6, 1.15);
     jet.group.visible = true;
+
+    // ---- 口元の炎ライト(明滅) ----
+    if (!jet.light) {
+      jet.light = new THREE.PointLight(0xff6622, 0, 26, 1.8);
+      scene.add(jet.light);
+    }
+    jet.light.position.copy(basePos).addScaledVector(aim, 2.5);
+    jet.light.intensity = 5.5 + Math.sin(performance.now() * 0.03) * 2.0;
 
     // ---- 見た目のアニメーション ----
     const time = performance.now() * 0.001;
@@ -984,16 +1002,16 @@ export class Player {
     }
 
     // ---- 円錐範囲ダメージ ----
-    // 見た目を 2倍太くしたのに合わせて円錐半角も拡大(0.38rad→0.6rad, ~34度)
-    const range = jet.length + 2.0;
+    // 大型化に合わせ射程・円錐半角を拡大(半角 0.6rad ≈ 34度)
+    const range = jet.length + 3.0;
     const halfAngleCos = Math.cos(0.6);
     this._dragonFlameDamageAcc += dt;
     const damageTick = 0.1;
     while (this._dragonFlameDamageAcc >= damageTick) {
       this._dragonFlameDamageAcc -= damageTick;
       if (enemies && enemies.length) {
-        // 威力 1.5倍(60→90 /sec)
-        const dmg = 90 * damageTick;
+        // 大型ドラゴン強化: 130ダメージ/秒
+        const dmg = 130 * damageTick;
         for (const e of enemies) {
           if (!e || !e.alive || !e.object) continue;
           if (e.ownerId === this.ownerId) continue;
@@ -1044,8 +1062,8 @@ export class Player {
     // 後方向き = 進行方向の逆
     const backDir = new THREE.Vector3(-vx / flatSp, 0, -vz / flatSp);
     // 発射基準位置: 機体中央のやや上(エンジン付近)
-    const baseY = this.object.position.y + 1.2;
-    const behindOffset = 1.4;
+    const baseY = this.object.position.y + 1.6; // 大型ドラゴンの尾部高さ
+    const behindOffset = 2.6;                    // 尻尾の後ろから噴射
     const basePos = new THREE.Vector3(
       this.object.position.x + backDir.x * behindOffset,
       baseY,
@@ -1683,6 +1701,14 @@ export class Player {
       this.mountTimer -= dt;
       if (this.mountTimer <= 0) this._unmountVehicle();
     }
+    // 乗り物アニメーション(ドラゴンの翼はばたき・尻尾・顎など)
+    if (this.mountedVehicleModel?.userData?.animate) {
+      this.mountedVehicleModel.userData.animate(performance.now() * 0.001, {
+        firing: this.dragonFireTimer > 0,
+        speed: Math.hypot(this.velocity.x, this.velocity.z),
+        flying: this.object.position.y > 1.2,
+      });
+    }
     // ドラゴン火炎放射タイマー
     if (this.dragonFireTimer > 0) {
       this.dragonFireTimer -= dt;
@@ -1895,8 +1921,9 @@ export class Player {
     this.object.position.addScaledVector(this.velocity, dt);
 
     // 地形高さをサンプリングして床にする(なぞり移動)
+    // 大型乗り物(ドラゴン等)は rideHeight 分だけ高く浮き、車体が地面に埋まらない
     const groundY = getTerrainHeightAt(this.object.position.x, this.object.position.z);
-    const minY = groundY + 1;
+    const minY = groundY + 1 + (this.mountedVehicle?.rideHeight ?? 0);
     if (this.object.position.y < minY) {
       this.object.position.y = minY;
       if (this.velocity.y < 0) this.velocity.y = 0;
