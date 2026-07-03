@@ -145,9 +145,9 @@ const items = new ItemManager(scene);
 function spawnDefaultItems() {
   const HALF = STAGE_BOUNDS.half;
   const ARENA = STAGE_BOUNDS.arenaRadius;
-  // 散布対象の有効半径（外周の山岳手前まで）
+  // 散布対象の有効半径（ステージ端の山岳手前まで、満遍なく散らす）
   const MIN_R = ARENA + 16;       // 中央アリーナをよける
-  const MAX_R = HALF * 0.62;      // 外周山岳の手前まで
+  const MAX_R = HALF * 0.85;      // ステージ端近くまで広く散布（以前は 0.62 で中央寄りに偏っていた）
   const placed = []; // {x,z,minD}
   // 安定したレイアウトのため擬似乱数（seed 固定）
   let _seed = 1337;
@@ -162,9 +162,10 @@ function spawnDefaultItems() {
     const minR = opts.minR ?? MIN_R;
     for (let tries = 0; tries < 80; tries++) {
       const ang = rand() * Math.PI * 2;
-      // 偏らないよう sqrt(r) 補正で面積一様サンプル
+      // 真の面積一様サンプル：円環 [minR, maxR] 上で密度が半径に比例（偏りなし）
+      // r = sqrt(t * (maxR² - minR²) + minR²)
       const t = rand();
-      const r = Math.sqrt(t) * (maxR - minR) + minR;
+      const r = Math.sqrt(t * (maxR * maxR - minR * minR) + minR * minR);
       const x = Math.cos(ang) * r;
       const z = Math.sin(ang) * r;
       // 既存との最小距離チェック
@@ -189,58 +190,57 @@ function spawnDefaultItems() {
 
   // ワープスポット2ペア：外周〜中域に分散
   {
-    const a = pickGroundPos(60, 4);
-    const b = pickGroundPos(60, 4);
+    const a = pickGroundPos(100, 4);
+    const b = pickGroundPos(100, 4);
     items.addWarpPair(a, b, { colorA: 0x66ccff, colorB: 0xff7adf });
   }
   {
-    const a = pickGroundPos(60, 18); // 上空ハブ
+    const a = pickGroundPos(100, 18); // 上空ハブ
     a.y += 14;
-    const b = pickGroundPos(60, 3);
+    const b = pickGroundPos(100, 3);
     items.addWarpPair(a, b, { colorA: 0xb8ff66, colorB: 0xffd166 });
   }
 
   // 連射ブースト：開けた場所に3つ
   for (let i = 0; i < 3; i++) {
-    const p = pickGroundPos(55, 5 + i * 2);
+    const p = pickGroundPos(90, 5 + i * 2);
     items.addPowerUp(p, { mul: 0.45 - i * 0.05, duration: 8 + i * 2, respawn: 14 + i * 2 });
   }
 
   // 回復オーブ：3つを広域に
   for (let i = 0; i < 3; i++) {
-    const p = pickGroundPos(55, 4 + i * 2);
+    const p = pickGroundPos(90, 4 + i * 2);
     items.addHealOrb(p, { amount: 60 + i * 10, respawn: 14 + i * 3 });
   }
 
-  // 武器ピックアップ：30種類をランダム散布
+  // 武器ピックアップ：30種類をランダム散布（間隔を広げてステージ全体に散らす）
   const weapons = getAllWeapons();
   weapons.forEach((w) => {
-    const pos = pickGroundPos(45, 1.6);
+    const pos = pickGroundPos(75, 1.6);
     items.addWeapon(pos, w, { respawn: 25 });
   });
 
   // 盾ピックアップ：10種類
   SHIELD_CATALOG.forEach((s) => {
-    const pos = pickGroundPos(45, 1.6);
+    const pos = pickGroundPos(75, 1.6);
     items.addShield(pos, s, { respawn: 25 });
   });
 
   // 回復ピックアップ：10種類
   HEAL_CATALOG.forEach((h) => {
-    const pos = pickGroundPos(45, 1.6);
+    const pos = pickGroundPos(75, 1.6);
     items.addHeal(pos, h, { respawn: 14 });
   });
 
-  // 乗り物：地上配置（アリーナ周辺の見つけやすい距離に、伝説はやや遠め）
+  // 乗り物：地上配置（ステージ全体に満遍なく、伝説はさらに遠くまで探索）
   VEHICLES.forEach((v) => {
     const isLeg = !!v.legendary;
-    // ステージ2x拡張に合わせて配置範囲も広げる
-    // 非伝説：ARENA+16 〜 ARENA+110 の近距離リング（3方向に確実に）
-    // 伝説：ARENA+60 〜 ARENA+180（探索の楽しみ）
+    // 非伝説：アリーナ外周〜ステージ中域まで広く分散
+    // 伝説：中域〜ステージ端付近まで（探索の楽しみ）
     const opts = isLeg
-      ? { minR: ARENA + 60, maxR: ARENA + 180 }
-      : { minR: ARENA + 16, maxR: ARENA + 110 };
-    const pos = pickGroundPos(35, 0.6, opts);
+      ? { minR: ARENA + 120, maxR: MAX_R }
+      : { minR: ARENA + 20, maxR: MAX_R * 0.75 };
+    const pos = pickGroundPos(60, 0.6, opts);
     items.addVehicleGround(pos, v, { respawn: 30 });
   });
 }

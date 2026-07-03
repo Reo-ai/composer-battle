@@ -313,8 +313,8 @@ function terrainHeightAt(x, z) {
   // 中央のフラット化
   h *= flatness;
 
-  // 遠方ほど隆起（地平の山並みへ繋ぐ）— 拡張マップ用に縁の立ち上がりを大幅に外周へ
-  const edge = Math.max(0, (d - 140) / 220);
+  // 遠方ほど隆起（地平の山並みへ繋ぐ）— ステージ 2 倍化に合わせ、平地エリアも 2 倍に拡張
+  const edge = Math.max(0, (d - 280) / 440);
   h += edge * edge * 22.0;
 
   return h;
