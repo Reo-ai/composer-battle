@@ -22,6 +22,7 @@ import { AudioBus } from './audio.js';
 import { ItemManager, SHIELD_CATALOG, HEAL_CATALOG } from './items.js';
 import { getAllWeapons } from './weapons.js';
 import { VEHICLES } from './vehicles.js';
+import { initMobileControls } from './mobile-controls.js';
 
 // ---- レンダラー ----
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -111,6 +112,8 @@ scene.add(playerChar);
 const input = new Input();
 // キャンバスクリックで Pointer Lock を取得（マウス視点）
 input.attachPointerLock(renderer.domElement);
+// モバイル向けオンスクリーンコントローラ（右下のトグルで表示）
+initMobileControls(input);
 const player = new Player(playerChar, {
   ownerId: 'player',
   bulletColor: CHARACTERS[currentCharId].color,

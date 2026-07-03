@@ -55,6 +55,13 @@ export class Input {
     return { dx, dy };
   }
 
+  // モバイルの視点操作パッドから直接デルタを注入するためのメソッド
+  // Pointer Lock 経由ではなくタッチ操作から視点を回すために使う
+  addMouseDelta(dx, dy) {
+    this._mouseDX += dx;
+    this._mouseDY += dy;
+  }
+
   isPointerLocked() {
     return !!document.pointerLockElement;
   }
