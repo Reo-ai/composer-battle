@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { SWORDS, GUNS, WANDS } from './weapons.js';
 import { VEHICLES } from './vehicles.js';
-import { SHIELD_CATALOG, HEAL_CATALOG } from './items.js';
+import { SHIELD_CATALOG, HEAL_CATALOG, SCOPE_CATALOG } from './items.js';
 import { STAGE_BOUNDS, getTerrainHeightAt } from './stage.js';
 import { CHARACTERS } from './characters.js';
 
@@ -19,7 +19,7 @@ const ULTIMATE_NAMES = {
 const CATEGORY_EMOJI = {
   character: '🎭',
   sword: '⚔', gun: '🔫', wand: '✨',
-  shield: '🛡', heal: '💖', vehicle: '🛞',
+  shield: '🛡', heal: '💖', scope: '🎯', vehicle: '🛞',
 };
 
 export class HUD {
@@ -534,18 +534,28 @@ export class HUD {
     if (player && player.object) {
       const p = player.object.position;
       const m = worldToMap(p.x, p.z);
-      // 視野方向（カメラのyaw想定）
-      const yaw = player.object.rotation ? player.object.rotation.y : 0;
-      // 視野扇形
-      ctx.fillStyle = 'rgba(255,224,102,0.18)';
+      // 視野方向: FPSでは player.yaw が実際の視線方向。
+      // メッシュの rotation.y はキャラアニメ用にスムージングされているので使わない。
+      const yaw = (typeof player.yaw === 'number') ? player.yaw : (player.object.rotation ? player.object.rotation.y : 0);
+      // 矢印(進行方向= -sin(yaw), -cos(yaw)) を先に計算して、
+      // 扇形ライトは矢印の先端から発するようにする
+      const size = 7;
+      const fx = -Math.sin(yaw); // マップ上の前方 X
+      const fy = -Math.cos(yaw); // マップ上の前方 Y
+      const tipX = m.x + fx * size;
+      const tipY = m.y + fy * size;
+      // 視野扇形: 矢印先端を起点に、進行方向へ光る
+      ctx.fillStyle = 'rgba(255,224,102,0.22)';
       ctx.beginPath();
-      ctx.moveTo(m.x, m.y);
+      ctx.moveTo(tipX, tipY);
       const fov = Math.PI / 3;
       const r = 22;
-      ctx.arc(m.x, m.y, r, -Math.PI / 2 - yaw - fov / 2, -Math.PI / 2 - yaw + fov / 2);
+      // canvas角度: 0=右, -π/2=上。前方(fx,fy)へ向くには atan2(fy,fx)
+      const centerAng = Math.atan2(fy, fx);
+      ctx.arc(tipX, tipY, r, centerAng - fov / 2, centerAng + fov / 2);
       ctx.closePath();
       ctx.fill();
-      drawTriangle(ctx, m.x, m.y, yaw, 7, '#ffe066', '#222');
+      drawTriangle(ctx, m.x, m.y, yaw, size, '#ffe066', '#222');
     }
   }
 
@@ -626,6 +636,22 @@ export class HUD {
         `基礎攻撃: ${c.attack}`,
       ],
     }));
+    // スコープ一覧: 内蔵スコープ + 拾えるスコープ(SCOPE_CATALOG)
+    const scopeEntries = [
+      {
+        id: 'scope_builtin',
+        name: '内蔵スコープ（常時搭載）',
+        color: 0xaaddff,
+        statsText: [
+          'Oキーで倍率切替: 1x → 2x → 3x → 5x → 1x',
+          'FPSモード（Fキー）中のみズーム有効',
+          '拾ったスコープ装備中は拾ったものが優先',
+          '倍率が上がるほどマウス感度が自動で下がる',
+          'スマホ: 右下パネルの O ボタンでも切替可',
+        ],
+      },
+      ...SCOPE_CATALOG,
+    ];
     this._infoCategories = [
       { id: 'character', label: '🎭 キャラ', items: characterEntries },
       { id: 'sword',   label: '⚔ 剣',     items: SWORDS },
@@ -633,6 +659,7 @@ export class HUD {
       { id: 'wand',    label: '✨ 杖',     items: WANDS },
       { id: 'shield',  label: '🛡 盾',     items: SHIELD_CATALOG },
       { id: 'heal',    label: '💖 回復',   items: HEAL_CATALOG },
+      { id: 'scope',   label: '🎯 スコープ', items: scopeEntries },
       { id: 'vehicle', label: '🛞 乗り物', items: VEHICLES },
     ];
     this._infoActiveTab = 'character';
@@ -818,8 +845,12 @@ export class HUD {
       <div style="font-weight:bold;font-size:13px;margin-bottom:6px;letter-spacing:1px;color:#ffd27a;">${title}</div>
       <div style="margin-bottom:4px;"><b style="color:#9ad7ff;">移動</b> WASD / ↑上昇 / ↓下降 / ←→ 左右</div>
       <div style="margin-bottom:4px;"><b style="color:#9ad7ff;">視点</b> マウス（画面クリックでロック / Escで解除）</div>
+      <div style="margin-bottom:4px;"><b style="color:#9ad7ff;">ジャンプ</b> Space（FPSモード時 / 昇った分だけ着地で沈む）</div>
+      <div style="margin-bottom:4px;"><b style="color:#9ad7ff;">よじ登り</b> 壁の縁に近づいてSpaceで角を掴んで自動登攀</div>
       <div style="margin-bottom:4px;"><b style="color:#9ad7ff;">ダッシュ</b> Shift（方向入力で突進）</div>
       <div style="margin-bottom:4px;"><b style="color:#9ad7ff;">射撃</b> Z（音符弾） / <b style="color:#c8a0ff;">特殊技</b> B（飛び道具）</div>
+      <div style="margin-bottom:4px;"><b style="color:#9ad7ff;">スコープ倍率</b> O（内蔵スコープ切替 1x → 2x → 3x → 5x → 1x / FPSモードで有効）</div>
+      <div style="margin-bottom:4px;"><b style="color:#9ad7ff;">FPS切替</b> F（一人称/三人称） / <b style="color:#9ad7ff;">リロード</b> R（FPS中）</div>
       <div style="margin-top:6px;margin-bottom:2px;"><b style="color:#ffb070;">弱攻撃</b> X</div>
       <div style="padding-left:10px;color:#ddd;">　X連打: ${escapeHtml(lbl('jab1','ジャブ1'))} → ${escapeHtml(lbl('jab2','ジャブ2'))} → ${escapeHtml(lbl('jab3','フィニッシュ'))}</div>
       <div style="padding-left:10px;color:#ddd;">　X+A/D: ${escapeHtml(lbl('side','横強'))}</div>
@@ -1105,10 +1136,11 @@ function colorForRatio(r) {
 
 // ミニマップで使う向き付き三角形（yaw=0は奥向き=画面上）
 function drawTriangle(ctx, cx, cy, yaw, size, fill, stroke) {
-  // ワールド座標(z+が手前)→ミニマップ(y+が下)なので yaw 反転に注意
-  const a = -yaw;
-  const forward = { x: -Math.sin(a), y: -Math.cos(a) };
-  const right = { x: Math.cos(a), y: -Math.sin(a) };
+  // ワールド前方 XZ = (-sin(yaw), -cos(yaw))。ミニマップは x=world.x, y=world.z なので
+  // そのまま (x, y) に対応する。矢印先端は進行方向を正しく指す。
+  const forward = { x: -Math.sin(yaw), y: -Math.cos(yaw) };
+  // 右手ベクトル: 前方を反時計90°回すと (-forward.y, forward.x) = (cos(yaw), -sin(yaw))
+  const right = { x: Math.cos(yaw), y: -Math.sin(yaw) };
   const tip = { x: cx + forward.x * size, y: cy + forward.y * size };
   const left = { x: cx - forward.x * size * 0.6 + right.x * size * 0.55,
                  y: cy - forward.y * size * 0.6 + right.y * size * 0.55 };

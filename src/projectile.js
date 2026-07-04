@@ -225,6 +225,9 @@ export class Projectile {
         this.velocity.lerp(desired, k);
       }
     }
+    // 高速弾のトンネル貫通を防ぐため、移動前の位置を保存(スイープ判定に使う)
+    if (!this._prevPosition) this._prevPosition = this.object.position.clone();
+    else this._prevPosition.copy(this.object.position);
     this.object.position.addScaledVector(this.velocity, dt);
     // 回転して飛んでる感を出す(炎は尾の向き維持のため回転させない)
     if (!this._isFire) this.object.rotation.z += dt * 8;
@@ -336,13 +339,41 @@ export class ProjectileManager {
 
   // 後でダメージ判定に使う: 対象座標と半径で衝突した弾を返す
   // ownerIdが一致する弾は無視（自爆防止）
+  // 判定方法:
+  //   (1) 高速弾のすり抜け防止のため、前フレーム位置→現フレーム位置の線分と
+  //       ターゲット球の最短距離で判定(スイープ判定)
+  //   (2) 「擦り」でもダメージが入るように 0.35 の許容マージンを加算
   checkHits(targetPosition, targetRadius, excludeOwnerId) {
     const hits = [];
+    const GRAZE_MARGIN = 0.35;
     for (const p of this.list) {
       if (!p.alive) continue;
       if (p.ownerId === excludeOwnerId) continue;
-      const d = p.object.position.distanceTo(targetPosition);
-      if (d < p.radius + targetRadius) {
+      const hitRadius = p.radius + targetRadius + GRAZE_MARGIN;
+      const cur = p.object.position;
+      // 前位置が無ければ現在位置のみで判定(発射直後)
+      const prev = p._prevPosition || cur;
+      // 線分 prev→cur 上でターゲット中心に最も近い点までの距離を求める
+      const sx = cur.x - prev.x, sy = cur.y - prev.y, sz = cur.z - prev.z;
+      const segLen2 = sx * sx + sy * sy + sz * sz;
+      let closestDist;
+      if (segLen2 < 1e-8) {
+        closestDist = cur.distanceTo(targetPosition);
+      } else {
+        const tx = targetPosition.x - prev.x;
+        const ty = targetPosition.y - prev.y;
+        const tz = targetPosition.z - prev.z;
+        let t = (tx * sx + ty * sy + tz * sz) / segLen2;
+        if (t < 0) t = 0; else if (t > 1) t = 1;
+        const cx = prev.x + sx * t;
+        const cy = prev.y + sy * t;
+        const cz = prev.z + sz * t;
+        const dx = cx - targetPosition.x;
+        const dy = cy - targetPosition.y;
+        const dz = cz - targetPosition.z;
+        closestDist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      }
+      if (closestDist < hitRadius) {
         hits.push(p);
       }
     }

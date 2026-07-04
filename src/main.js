@@ -71,15 +71,21 @@ scopeBadge.innerHTML = `<span id="scope-badge-icon">🎯</span> <span id="scope-
 document.body.appendChild(scopeBadge);
 const scopeBadgeText = scopeBadge.querySelector('#scope-badge-text');
 function updateScopeBadge() {
-  if (!player || !player.equippedScope) {
+  if (!player) { scopeBadge.style.display = 'none'; return; }
+  const isFps = (typeof gameMode !== 'undefined' && gameMode === 'fps');
+  // 拾ったスコープ優先。それがなければ内蔵スコープ状態を表示(1x はバッジ非表示)
+  if (player.equippedScope) {
+    const sc = player.equippedScope;
+    const z = player.scopeZoom || 1;
+    scopeBadgeText.textContent = `${sc.name || sc.id}  x${z.toFixed(1)}${isFps ? '' : ' (F でFPS)'}`;
+  } else if (player.getEffectiveScope) {
+    const eff = player.getEffectiveScope();
+    if (eff.zoom <= 1.001) { scopeBadge.style.display = 'none'; return; }
+    scopeBadgeText.textContent = `内蔵スコープ  x${eff.zoom.toFixed(0)}${isFps ? '' : ' (F でFPS)'}`;
+  } else {
     scopeBadge.style.display = 'none';
     return;
   }
-  const sc = player.equippedScope;
-  const z = player.scopeZoom || 1;
-  const isFps = (typeof gameMode !== 'undefined' && gameMode === 'fps');
-  scopeBadgeText.textContent = `${sc.name || sc.id}  x${z.toFixed(1)}${isFps ? '' : ' (F でFPS)'}`;
-  // FPS 時は明るく、アクション時は少し薄めに
   scopeBadge.style.opacity = isFps ? '1' : '0.72';
   scopeBadge.style.display = 'flex';
   scopeBadge.style.alignItems = 'center';
@@ -328,7 +334,15 @@ camera.position.set(0, 5, 10);
 // - それ以外: BASE_FOV を維持
 let _lastScopeZoom = 1;
 function updateScopeFov(silent = false) {
-  const zoom = (gameMode === 'fps' && player && player.equippedScope) ? (player.scopeZoom || 1) : 1;
+  // 拾いスコープを優先し、なければ内蔵スコープの有効倍率を使う
+  let zoom = 1;
+  if (gameMode === 'fps' && player) {
+    if (player.equippedScope) {
+      zoom = player.scopeZoom || 1;
+    } else if (player.getEffectiveScope) {
+      zoom = player.getEffectiveScope().zoom || 1;
+    }
+  }
   const targetFov = BASE_FOV / zoom;
   if (Math.abs(camera.fov - targetFov) > 0.01) {
     camera.fov = targetFov;
@@ -415,7 +429,7 @@ if (typeof window !== 'undefined') window.__covers = covers;
 const beacons = []; // { headMat, headMesh, glow, flag, baseY, phase }
 {
   const platformBoxes = covers.colliders.filter(
-    (b) => b.userData && b.userData.type === 'platform',
+    (b) => b.userData && b.userData.type === 'platform' && !b.userData.suppressBeacon,
   );
   const poleMat = new THREE.MeshStandardMaterial({
     color: 0x2a2a30, roughness: 0.5, metalness: 0.7,
@@ -610,6 +624,14 @@ window.addEventListener('keydown', (e) => {
     setGameMode(gameMode === 'fps' ? 'action' : 'fps');
   } else if (e.code === 'KeyR' && !e.repeat && gameMode === 'fps') {
     startFpsReload();
+  } else if (e.code === 'KeyO' && !e.repeat) {
+    // 内蔵スコープの倍率を切り替え (1x → 2x → 3x → 5x → 1x)
+    // FPS以外のモードでも入力は受け付ける(モード復帰時に有効化)
+    if (player && player.cycleBuiltinScope) {
+      player.cycleBuiltinScope();
+      updateScopeFov();       // FPS中なら即座に反映
+      updateScopeBadge();
+    }
   }
 });
 

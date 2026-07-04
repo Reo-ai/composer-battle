@@ -117,6 +117,8 @@ const HTML = `
     <div class="mc-btn" data-key="KeyB">B<small>特殊</small></div>
     <div class="mc-btn" data-key="KeyV">V<small>奥義</small></div>
     <div class="mc-btn" data-key="ShiftLeft">Shift<small>ダッシュ</small></div>
+    <div class="mc-btn" data-key="Space">跳<small>ジャンプ/よじ登り</small></div>
+    <div class="mc-btn" data-tap="KeyO">O<small>スコープ倍率</small></div>
   </div>
 </div>
 `;
@@ -241,6 +243,24 @@ function setupLook(lookEl, input) {
   lookEl.addEventListener('touchcancel', end, { passive: false });
 }
 
+// タップで1回だけ keydown を発火するボタン(モード切替・スコープ切替などトグル系用)
+// keydownリスナー(main.js の KeyO 等)が拾えるようにダミーの KeyboardEvent を投げる
+function bindTapButton(btnEl, keyCode) {
+  const fire = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // 表示上のフィードバック
+    btnEl.classList.add('pressed');
+    setTimeout(() => btnEl.classList.remove('pressed'), 120);
+    // window の keydown リスナー宛に発火
+    const ev = new KeyboardEvent('keydown', { code: keyCode, key: keyCode, bubbles: true });
+    window.dispatchEvent(ev);
+  };
+  btnEl.addEventListener('touchstart', fire, { passive: false });
+  // マウスでのテストも一応対応
+  btnEl.addEventListener('mousedown', fire);
+}
+
 // 押している間だけ keys[code] を true にするボタン
 function bindHoldButton(btnEl, input, keyCode) {
   const press = (e) => {
@@ -291,7 +311,7 @@ export function initMobileControls(input) {
       ['KeyW', 'KeyA', 'KeyS', 'KeyD',
        'ArrowUp', 'ArrowDown',
        'KeyZ', 'KeyX', 'KeyC', 'KeyB', 'KeyV',
-       'ShiftLeft'].forEach((k) => { input.keys[k] = false; });
+       'ShiftLeft', 'Space'].forEach((k) => { input.keys[k] = false; });
       panel.querySelectorAll('.mc-btn.pressed').forEach((el) => el.classList.remove('pressed'));
     }
   };
@@ -303,5 +323,9 @@ export function initMobileControls(input) {
   setupLook(panel.querySelector('[data-role="look"]'), input);
   panel.querySelectorAll('.mc-btn[data-key]').forEach((btn) => {
     bindHoldButton(btn, input, btn.dataset.key);
+  });
+  // タップ1回で keydown を投げるボタン(スコープ倍率切替など)
+  panel.querySelectorAll('.mc-btn[data-tap]').forEach((btn) => {
+    bindTapButton(btn, btn.dataset.tap);
   });
 }

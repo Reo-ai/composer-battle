@@ -7,6 +7,45 @@
 // buildStage(scene) は { update(dt) } を返す。
 
 import * as THREE from 'three';
+import { getSelectedStage } from './stage-select.js';
+
+// ---- ステージ別パレット ----
+// 'wild' … 変更前の荒野（夕焼け・土の大地）
+// 'city' … 都会（青空・コンクリ舗装）
+// buildStage / createTerrain の両方から参照する。
+const PALETTES = {
+  wild: {
+    bg: 0x7a2a1a,
+    fog: { color: 0xb04a26, density: 0.0042 },
+    hemi: { sky: 0xffa070, ground: 0x2a1828, intensity: 0.75 },
+    sun: { color: 0xffc080, intensity: 2.2 },
+    rim: { color: 0x6a3e8a, intensity: 0.55 },
+    fill: { color: 0xff8848, intensity: 0.28 },
+    ground: { a: 0x6a3a25, b: 0x3a1f15 },
+    terrain: {
+      cGround: 0x6e3a22, cDark: 0x3c1d10, cAsh: 0x5a4a3e,
+      cBurn: 0x8a2820, cClay: 0x8a5030, cRock: 0x4a3025,
+    },
+  },
+  city: {
+    bg: 0x9ec6e6,
+    fog: { color: 0xbcd2e4, density: 0.0038 },
+    hemi: { sky: 0xbcd8f0, ground: 0x4a4e56, intensity: 0.85 },
+    sun: { color: 0xfff2df, intensity: 2.3 },
+    rim: { color: 0x6f92c0, intensity: 0.5 },
+    fill: { color: 0x9fb6d6, intensity: 0.3 },
+    ground: { a: 0x868b93, b: 0x5c616a },
+    terrain: {
+      cGround: 0x73787f, cDark: 0x44474d, cAsh: 0x9298a0,
+      cBurn: 0x8a2820, cClay: 0x7c8189, cRock: 0x5a5e66,
+    },
+  },
+};
+
+// 現在選択中のステージのパレットを返す（未選択なら city）
+function getPalette() {
+  return PALETTES[getSelectedStage()] || PALETTES.city;
+}
 
 // ステージを大幅拡張（260→900→1800→2700、FPS化に合わせ地上面積を 1.5 倍に）
 const TERRAIN_SIZE = 2700;
@@ -25,19 +64,22 @@ export function getTerrainHeightAt(x, z) {
 }
 
 export function buildStage(scene) {
+  // ---- ステージ別パレット取得 ----
+  const PAL = getPalette();
+
   // ---- 背景・フォグ ----
-  // 濃厚な夕焼け基調（DBZ風）。FogExp2 で奥行きが自然に霞む
-  scene.background = new THREE.Color(0x7a2a1a);
+  // wild=夕焼け / city=澄んだ昼空。FogExp2 で奥行きが自然に霞む
+  scene.background = new THREE.Color(PAL.bg);
   // ステージ拡張により霞密度を下げて視界を確保
-  scene.fog = new THREE.FogExp2(0xb04a26, 0.0042);
+  scene.fog = new THREE.FogExp2(PAL.fog.color, PAL.fog.density);
 
   // ---- ライティング ----
-  // 半球光：上から夕焼け、下から暗赤紫
-  const hemi = new THREE.HemisphereLight(0xffa070, 0x2a1828, 0.75);
+  // 半球光：上から空色、下から地面反射
+  const hemi = new THREE.HemisphereLight(PAL.hemi.sky, PAL.hemi.ground, PAL.hemi.intensity);
   scene.add(hemi);
 
   // 太陽：強めの方向光（影付き）— 影マップ4Kでシャープに、撮影範囲を拡張
-  const sun = new THREE.DirectionalLight(0xffc080, 2.2);
+  const sun = new THREE.DirectionalLight(PAL.sun.color, PAL.sun.intensity);
   sun.position.set(180, 220, 100);
   sun.castShadow = true;
   sun.shadow.mapSize.set(4096, 4096);
@@ -51,13 +93,13 @@ export function buildStage(scene) {
   sun.shadow.normalBias = 0.04;
   scene.add(sun);
 
-  // リムライト：逆方向の冷たい紫。立体感が出てDBZ感
-  const rim = new THREE.DirectionalLight(0x6a3e8a, 0.55);
+  // リムライト：逆方向の光。エッジを立たせる
+  const rim = new THREE.DirectionalLight(PAL.rim.color, PAL.rim.intensity);
   rim.position.set(-180, 90, -120);
   scene.add(rim);
 
-  // フィルライト：地平の暖色反射（広域に薄く差し込む）
-  const fill = new THREE.DirectionalLight(0xff8848, 0.28);
+  // フィルライト：地平の空色反射（広域に薄く差し込む）
+  const fill = new THREE.DirectionalLight(PAL.fill.color, PAL.fill.intensity);
   fill.position.set(0, 30, -250);
   scene.add(fill);
 
@@ -74,8 +116,8 @@ export function buildStage(scene) {
   // ---- 多層山稜（遠景） ----
   scene.add(createMountainLayers());
 
-  // ---- メイン地形（ノイズで起伏、岩肌テクスチャ） ----
-  const groundTex = createRockTexture(0x6a3a25, 0x3a1f15);
+  // ---- メイン地形（ノイズで起伏、ステージ別テクスチャ） ----
+  const groundTex = createRockTexture(PAL.ground.a, PAL.ground.b);
   const terrain = createTerrain(groundTex);
   scene.add(terrain);
 
@@ -578,12 +620,14 @@ function createTerrain(mapTex) {
   const pos = geo.attributes.position;
   const colors = new Float32Array(pos.count * 3);
 
-  const cGround = new THREE.Color(0x6e3a22);  // 標準の土
-  const cDark   = new THREE.Color(0x3c1d10);  // 谷の影
-  const cAsh    = new THREE.Color(0x5a4a3e);  // 高所の灰
-  const cBurn   = new THREE.Color(0x8a2820);  // アリーナ周辺の焼け
-  const cClay   = new THREE.Color(0x8a5030);  // 露出した粘土層
-  const cRock   = new THREE.Color(0x4a3025);  // 岩肌
+  // ステージ別の地形カラー（wild=土 / city=コンクリ）
+  const T = getPalette().terrain;
+  const cGround = new THREE.Color(T.cGround);  // 標準の地表
+  const cDark   = new THREE.Color(T.cDark);    // 谷/継ぎ目の影
+  const cAsh    = new THREE.Color(T.cAsh);     // 高所の明るい地表
+  const cBurn   = new THREE.Color(T.cBurn);    // 中央の焼け色
+  const cClay   = new THREE.Color(T.cClay);    // 色ムラ
+  const cRock   = new THREE.Color(T.cRock);    // 露出した岩/基礎
 
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i);

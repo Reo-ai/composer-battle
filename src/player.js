@@ -411,6 +411,15 @@ export class Player {
     this.equippedScope = null;        // items.js の SCOPE_CATALOG entry
     this.scopeZoom = 1;               // 1 = 等倍
     this.scopeSensitivityMul = 1;     // マウス感度倍率
+    // 常時搭載の内蔵スコープ(Oキーで循環): 0=1x(オフ), 1=2x, 2=3x, 3=5x
+    // 拾ったスコープ(equippedScope)が装備中はそちらが優先される
+    this._builtinScopeIdx = 0;
+    this._builtinScopeLevels = [
+      { zoom: 1, sensMul: 1 },        // 1x: オフ
+      { zoom: 2, sensMul: 0.80 },     // 2x
+      { zoom: 3, sensMul: 0.65 },     // 3x
+      { zoom: 5, sensMul: 0.45 },     // 5x
+    ];
     // FPSモードフラグ(main.js の setGameMode で更新)
     this.fpsMode = false;
     // FPSジャンプ関連
@@ -419,6 +428,13 @@ export class Player {
     this._jumpPeakDy = 0;            // 空中中の最高到達高度(発射位置比)
     this._landCrouch = 0;            // 着地時の沈み込み量(視覚オフセット用)
     this._spaceHeld = false;         // 連射で毎フレームジャンプするのを防止
+    // レッジグラブ(壁の角を掴んで登る)
+    this._ledgeClimbing = false;     // よじ登り中
+    this._ledgeClimbTimer = 0;       // よじ登りの残り時間(秒)
+    this._ledgeClimbDur = 0;         // よじ登りの総時間(秒)
+    this._ledgeStart = new THREE.Vector3();
+    this._ledgeEnd = new THREE.Vector3();
+    this._ledgeCooldown = 0;         // 連続よじ登り防止
     this.mountedVehicle = null;       // vehicles.js のカタログ entry
     this.mountedVehicleModel = null;  // object 直下にぶら下げる THREE.Object3D
     this.mountTimer = 0;
@@ -674,6 +690,25 @@ export class Player {
     this.equippedScope = null;
     this.scopeZoom = 1;
     this.scopeSensitivityMul = 1;
+  }
+
+  // 内蔵スコープの倍率を次段に切り替え(Oキー)
+  // 循環: 1x → 2x → 3x → 5x → 1x
+  // 拾いスコープを装備しているときは内蔵スコープの効果は無視される
+  cycleBuiltinScope() {
+    const levels = this._builtinScopeLevels;
+    this._builtinScopeIdx = (this._builtinScopeIdx + 1) % levels.length;
+    return this._builtinScopeIdx;
+  }
+
+  // 実際に適用すべきズーム倍率と感度倍率を返す
+  // 優先順位: 拾いスコープ > 内蔵スコープ
+  getEffectiveScope() {
+    if (this.equippedScope) {
+      return { zoom: this.scopeZoom || 1, sensMul: this.scopeSensitivityMul || 1, source: 'pickup' };
+    }
+    const lv = this._builtinScopeLevels[this._builtinScopeIdx] || this._builtinScopeLevels[0];
+    return { zoom: lv.zoom, sensMul: lv.sensMul, source: 'builtin' };
   }
 
   // ===== 乗り物搭乗 =========================================================
@@ -1860,11 +1895,43 @@ export class Player {
       return;
     }
 
+    // レッジグラブ(壁の角を掴んでよじ登る)進行中は入力/物理をロックし、
+    // 補間で開始位置 → 目標位置(壁の上)へ動かす
+    if (this._ledgeClimbing) {
+      this._ledgeClimbTimer -= dt;
+      if (this._ledgeClimbTimer <= 0) {
+        this.object.position.copy(this._ledgeEnd);
+        this.velocity.set(0, 0, 0);
+        this._ledgeClimbing = false;
+        this._grounded = true;
+        this._jumpPeakDy = 0;
+        this._landCrouch = 0;
+        this._spaceHeld = true; // 掴んだ瞬間の Space 長押しを吸収
+        this._ledgeCooldown = 0.35;
+      } else {
+        const t = 1 - (this._ledgeClimbTimer / this._ledgeClimbDur);
+        // 先に上へ、次に前へ(手掛かりを掴んで体を引き上げる感触)
+        const yT  = Math.min(1, t / 0.6);
+        const xzT = Math.max(0, (t - 0.35) / 0.65);
+        const ease = (u) => 1 - (1 - u) * (1 - u);
+        const s = this._ledgeStart, e = this._ledgeEnd;
+        const y  = s.y + (e.y - s.y) * ease(yT);
+        const x  = s.x + (e.x - s.x) * ease(xzT);
+        const z  = s.z + (e.z - s.z) * ease(xzT);
+        this.object.position.set(x, y, z);
+        this.velocity.set(0, 0, 0);
+      }
+      return;
+    }
+    if (this._ledgeCooldown > 0) this._ledgeCooldown -= dt;
+
     // 視点回転（Pointer Lock 中のマウス移動量で yaw/pitch を更新）
     // スコープ装備時は scopeSensitivityMul で感度を下げる（高倍率ほど鈍く）
     if (input.consumeMouseDelta) {
       const { dx, dy } = input.consumeMouseDelta();
-      const sensMul = this.scopeSensitivityMul ?? 1;
+      // 拾いスコープ優先、なければ内蔵スコープの感度倍率
+      const eff = this.getEffectiveScope ? this.getEffectiveScope() : null;
+      const sensMul = eff ? (eff.sensMul ?? 1) : (this.scopeSensitivityMul ?? 1);
       this.yaw   -= dx * MOUSE_YAW_SENS   * sensMul;
       this.pitch -= dy * MOUSE_PITCH_SENS * sensMul;
     }
@@ -1986,17 +2053,81 @@ export class Player {
 
       // FPS モード(徒歩): 重力 & Space ジャンプ
       if (_fpsPhysics) {
-        const GRAVITY = 26;   // m/s^2 (少し重めで着地感を出す)
-        const JUMP_V  = 8.5;  // 初速 → 頂点約 1.4m
+        const GRAVITY = 26;    // m/s^2 (少し重めで着地感を出す)
+        const JUMP_V  = 21.0;  // 頂点約 8.6m (跳びすぎたので現状の半分に調整)
         this.velocity.y -= GRAVITY * dt;
         const spaceNow = input.isDown('Space');
-        if (spaceNow && !this._spaceHeld && this._grounded) {
+        if (spaceNow && !this._spaceHeld && this._grounded && !this._ledgeClimbing) {
           this.velocity.y = JUMP_V;
           this._jumpStartY = this.object.position.y;
           this._jumpPeakDy = 0;
           this._grounded = false;
         }
         this._spaceHeld = spaceNow;
+
+        // レッジグラブ検出: 空中で下降しかけている時、
+        // 前方の壁の縁の「奥に walkable な床がある」場合のみ掴んでよじ登る。
+        // 床が無い所へ登ろうとするとバウンドバグの原因になるので必ず床の存在を確認する。
+        if (!this._grounded && this._ledgeCooldown <= 0 && this.velocity.y < 3) {
+          const _cvs = (typeof window !== 'undefined') ? window.__covers : null;
+          if (_cvs && _cvs.colliders && _cvs.resolveStandOn) {
+            const p = this.object.position;
+            const fwd = this.getForwardXZ();
+            let bestScore = -Infinity;
+            let bestTarget = null;
+            const _probe = new THREE.Vector3();
+            for (const box of _cvs.colliders) {
+              if (box.userData && box.userData.walkable) continue;
+              const top = box.max.y;
+              const dy = top - p.y;
+              if (dy < -0.3 || dy > 2.4) continue; // 腰〜頭上の範囲のみ
+              // 箱の XZ 面への最寄り点
+              const cx = Math.max(box.min.x, Math.min(p.x, box.max.x));
+              const cz = Math.max(box.min.z, Math.min(p.z, box.max.z));
+              const distXZ = Math.hypot(p.x - cx, p.z - cz);
+              if (distXZ > 1.2) continue; // 腕の届く距離
+              // 前方向きチェック
+              const ex = cx - p.x, ez = cz - p.z;
+              const eLen = Math.hypot(ex, ez);
+              const facing = (eLen > 1e-4) ? ((ex / eLen) * fwd.x + (ez / eLen) * fwd.z) : 1;
+              if (facing < 0.35) continue;
+
+              // 壁の奥(fwd 方向)を段階的にサンプリングし、
+              // 壁上端 ±0.8m 以内に walkable 床が実在するかを確認する
+              let landY = -Infinity;
+              let landX = 0, landZ = 0;
+              for (let d = 0.6; d <= 2.4; d += 0.3) {
+                const px = p.x + fwd.x * d;
+                const pz = p.z + fwd.z * d;
+                _probe.set(px, top + 0.5, pz);
+                const s = _cvs.resolveStandOn(_probe, 0.9);
+                if (s > -Infinity && Math.abs(s - top) < 0.8) {
+                  landY = s;
+                  landX = px;
+                  landZ = pz;
+                  break;
+                }
+              }
+              // 立てる床が見つからない壁は登らない(バウンドバグ回避)
+              if (landY === -Infinity) continue;
+
+              const score = facing * 2 - distXZ + (2.4 - Math.abs(dy)) * 0.4;
+              if (score > bestScore) {
+                bestScore = score;
+                // 見つけた walkable 床の上に着地(通常の grounding と同じ +1 オフセット)
+                bestTarget = { x: landX, y: landY + 1, z: landZ };
+              }
+            }
+            if (bestTarget) {
+              this._ledgeClimbing = true;
+              this._ledgeClimbDur = 0.45;
+              this._ledgeClimbTimer = this._ledgeClimbDur;
+              this._ledgeStart.copy(p);
+              this._ledgeEnd.set(bestTarget.x, bestTarget.y, bestTarget.z);
+              this.velocity.set(0, 0, 0);
+            }
+          }
+        }
       }
       const charSpeedScale = (this.baseMoveSpeed ?? 6) / 6;
       const maxFlat = MOVE_SPEED * speedMul * charSpeedScale;
@@ -2022,8 +2153,9 @@ export class Player {
       }
       // FPS モード(徒歩)は縦速度の上限を独自にする(ジャンプ初速と自由落下を許容)
       if (_fpsPhysics) {
-        if (this.velocity.y >  12) this.velocity.y =  12;
-        if (this.velocity.y < -30) this.velocity.y = -30;
+        // 上昇クランプ(ジャンプ跳びすぎ調整で半分に)
+        if (this.velocity.y >  21) this.velocity.y =  21;
+        if (this.velocity.y < -32) this.velocity.y = -32;
       } else {
         if (this.velocity.y >  maxAsc)  this.velocity.y =  maxAsc;
         if (this.velocity.y < -maxDesc) this.velocity.y = -maxDesc;
@@ -2055,8 +2187,8 @@ export class Player {
       this.object.position.y = minY;
       if (this.velocity.y < 0) this.velocity.y = 0;
     }
-    if (this.object.position.y > groundY + 50) {
-      this.object.position.y = groundY + 50;
+    if (this.object.position.y > groundY + 65) {
+      this.object.position.y = groundY + 65;
       if (this.velocity.y > 0) this.velocity.y = 0;
     }
 
@@ -2067,8 +2199,8 @@ export class Player {
         const dy = this.object.position.y - this._jumpStartY;
         if (dy > this._jumpPeakDy) this._jumpPeakDy = dy;
         if (onGround) {
-          // 着地: ジャンプで昇った分だけ沈む(最大 1.4m、視覚のみ)
-          this._landCrouch = Math.min(this._jumpPeakDy, 1.4);
+          // 着地: 沈み込みを控えめに(視覚のみ、最大 0.5m)
+          this._landCrouch = Math.min(this._jumpPeakDy * 0.15, 0.5);
           this._jumpPeakDy = 0;
           this._grounded = true;
         }
@@ -2078,8 +2210,8 @@ export class Player {
         this._jumpStartY = this.object.position.y;
         this._jumpPeakDy = 0;
       }
-      // 沈み込みは指数的にスプリングバック(約 0.15s で 1/e)
-      this._landCrouch *= Math.exp(-7 * dt);
+      // 沈み込みは指数的にスプリングバック(約 0.08s で 1/e、キビキビ復帰)
+      this._landCrouch *= Math.exp(-12 * dt);
       if (this._landCrouch < 0.002) this._landCrouch = 0;
     } else {
       // 非FPS時は状態をリセット

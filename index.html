@@ -14,9 +14,108 @@
         font-size: 14px; opacity: 0.8; pointer-events: none;
       }
       #hud h1 { font-size: 18px; margin-bottom: 6px; }
+
+      /* ---- ステージ選択タイトル画面 ---- */
+      #stage-select {
+        position: fixed; inset: 0; z-index: 1000;
+        display: flex; flex-direction: column;
+        align-items: center; justify-content: center;
+        gap: 28px;
+        background: radial-gradient(circle at 50% 30%, #1b2740 0%, #0a0d16 70%);
+        font-family: -apple-system, "Hiragino Sans", sans-serif;
+        color: #fff;
+      }
+      #stage-select .title {
+        font-size: clamp(24px, 5vw, 44px); font-weight: 800;
+        letter-spacing: 0.06em; text-shadow: 0 2px 18px rgba(90,150,255,0.35);
+      }
+      #stage-select .subtitle {
+        font-size: 14px; opacity: 0.7; margin-top: -14px;
+      }
+      #stage-select .cards {
+        display: flex; gap: 24px; flex-wrap: wrap; justify-content: center;
+        padding: 0 16px;
+      }
+      #stage-select .card {
+        width: 240px; height: 300px; border-radius: 18px;
+        border: 2px solid rgba(255,255,255,0.12);
+        cursor: pointer; overflow: hidden; position: relative;
+        display: flex; flex-direction: column; justify-content: flex-end;
+        transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+        background-size: cover; background-position: center;
+      }
+      #stage-select .card:hover {
+        transform: translateY(-6px) scale(1.02);
+        border-color: rgba(120,180,255,0.9);
+        box-shadow: 0 12px 40px rgba(40,90,180,0.45);
+      }
+      #stage-select .card.wild {
+        background:
+          linear-gradient(180deg, rgba(0,0,0,0) 40%, rgba(0,0,0,0.75) 100%),
+          linear-gradient(160deg, #7a2a1a 0%, #b04a26 45%, #d98a4a 100%);
+      }
+      #stage-select .card.city {
+        background:
+          linear-gradient(180deg, rgba(0,0,0,0) 40%, rgba(0,0,0,0.75) 100%),
+          linear-gradient(160deg, #9ec6e6 0%, #4a6f9c 55%, #28486a 100%);
+      }
+      #stage-select .card .label {
+        padding: 16px 18px 18px;
+      }
+      #stage-select .card .label .name {
+        font-size: 22px; font-weight: 800; margin-bottom: 4px;
+      }
+      #stage-select .card .label .desc {
+        font-size: 12.5px; line-height: 1.5; opacity: 0.85;
+      }
+      #stage-select .hint { font-size: 12px; opacity: 0.5; }
     </style>
   </head>
   <body>
-    <script type="module" src="/src/main.js"></script>
+    <!-- ステージ選択タイトル画面（選択後に JS で除去 → main.js を読み込む） -->
+    <div id="stage-select">
+      <div class="title">作曲マスター3Dバトル</div>
+      <div class="subtitle">ステージを選んでください</div>
+      <div class="cards">
+        <div class="card wild" data-stage="wild">
+          <div class="label">
+            <div class="name">荒野</div>
+            <div class="desc">夕焼けに染まる土の大地。<br />DBZ 風の空中戦アリーナ。</div>
+          </div>
+        </div>
+        <div class="card city" data-stage="city">
+          <div class="label">
+            <div class="name">都会</div>
+            <div class="desc">青空とビル群のシティスケープ。<br />高層タワーとスカイブリッジ。</div>
+          </div>
+        </div>
+      </div>
+      <div class="hint">クリックで開始 ／ あとで R キーでリスタート</div>
+    </div>
+
+    <!-- ステージ選択ゲート: 選択が済んでから main.js を動的 import する -->
+    <script type="module">
+      import { getSelectedStage, setSelectedStage, clearSelectedStage } from '/src/stage-select.js';
+
+      const overlay = document.getElementById('stage-select');
+
+      function launch(stage) {
+        setSelectedStage(stage);
+        if (overlay) overlay.remove();
+        import('/src/main.js');
+      }
+
+      // URL に ?stage= が明示されていれば選択画面をスキップ（共有リンク用）
+      const urlStage = new URLSearchParams(location.search).get('stage');
+      if (urlStage === 'wild' || urlStage === 'city') {
+        launch(urlStage);
+      } else {
+        // 前回選択を消してから毎回タイトルを表示する
+        clearSelectedStage();
+        overlay.querySelectorAll('.card').forEach((card) => {
+          card.addEventListener('click', () => launch(card.dataset.stage));
+        });
+      }
+    </script>
   </body>
 </html>
