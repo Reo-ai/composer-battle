@@ -407,6 +407,10 @@ export class Player {
     this.shieldHp = 0;
     this.shieldReflect = 0;
     this.dmgReduce = 0;               // 盾効果(0〜1)
+    // スコープ装備(FPSモード時のみFOVを絞る)
+    this.equippedScope = null;        // items.js の SCOPE_CATALOG entry
+    this.scopeZoom = 1;               // 1 = 等倍
+    this.scopeSensitivityMul = 1;     // マウス感度倍率
     this.mountedVehicle = null;       // vehicles.js のカタログ entry
     this.mountedVehicleModel = null;  // object 直下にぶら下げる THREE.Object3D
     this.mountTimer = 0;
@@ -641,6 +645,22 @@ export class Player {
     this.shieldHp = 0;
     this.shieldReflect = 0;
     this.dmgReduce = 0;
+  }
+
+  // ===== スコープ装備(FPSモード時のみ有効) ==================================
+  // FPSモードでカメラの FOV を割る形で拡大鏡代わりに使う。
+  // 装備状態は永続で、拾い直すと上書き。
+  equipScope(scopeCfg) {
+    if (!scopeCfg) return;
+    this.equippedScope = scopeCfg;
+    this.scopeZoom = scopeCfg.zoom ?? 1;
+    this.scopeSensitivityMul = scopeCfg.sensitivityMul ?? 1;
+  }
+
+  _unequipScope() {
+    this.equippedScope = null;
+    this.scopeZoom = 1;
+    this.scopeSensitivityMul = 1;
   }
 
   // ===== 乗り物搭乗 =========================================================
@@ -1734,23 +1754,9 @@ export class Player {
     if (this.ufoLightningCooldown > 0) this.ufoLightningCooldown -= dt;
     if (this.attackCooldown > 0) this.attackCooldown -= dt;
     if (this.dashCooldown > 0) this.dashCooldown -= dt;
-    // 連射ブースト残時間
-    if (this.fireBoostTimer > 0) {
-      this.fireBoostTimer -= dt;
-      if (this.fireBoostTimer <= 0) {
-        this.fireBoostTimer = 0;
-        this.fireRateMul = 1;
-      }
-    }
-    // 武器ブースト残時間（弾威力倍率を戻す。連射倍率は fireBoostTimer 側で戻る）
-    if (this.weaponBoostTimer > 0) {
-      this.weaponBoostTimer -= dt;
-      if (this.weaponBoostTimer <= 0) {
-        this.weaponBoostTimer = 0;
-        this.bulletDmgMul = 1;
-      }
-    }
-    // 乗り物ブースト残時間
+    // 連射ブースト残時間（永続化：タイマーは減衰させない）
+    // 武器ブースト残時間（永続化：タイマーは減衰させない）
+    // 乗り物ブースト残時間（← ここだけ通常通り減衰）
     if (this.vehicleBoostTimer > 0) {
       this.vehicleBoostTimer -= dt;
       if (this.vehicleBoostTimer <= 0) {
@@ -1759,16 +1765,8 @@ export class Player {
       }
     }
 
-    // 装備武器タイマー
-    if (this.weaponTimer > 0) {
-      this.weaponTimer -= dt;
-      if (this.weaponTimer <= 0) this._unequipWeapon();
-    }
-    // 盾タイマー
-    if (this.shieldTimer > 0) {
-      this.shieldTimer -= dt;
-      if (this.shieldTimer <= 0) this._unequipShield();
-    }
+    // 装備武器タイマー（永続化：時間経過で外れない）
+    // 盾タイマー（永続化：時間経過で外れない。ただしシールドHPが 0 になれば別途 _unequipShield が走る）
     // 搭乗タイマー
     if (this.mountTimer > 0) {
       this.mountTimer -= dt;

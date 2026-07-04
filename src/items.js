@@ -18,31 +18,32 @@ const HEAL_RADIUS = 1.1;
 const WEAPON_RADIUS = 1.3;
 const SHIELD_RADIUS = 1.3;
 const VEHICLE_RADIUS = 2.2;
+const SCOPE_RADIUS = 1.2;
 
 // ============================================================
 // シールドカタログ(10種)
 // ============================================================
 export const SHIELD_CATALOG = [
   { id: 'shd_buckler', name: 'バックラー',     shape: 'buckler',  color: 0xb08040, dmgReduce: 0.15, duration: 25, hp: 60,
-    statsText: ['ダメージ軽減 15%', '耐久 60', '持続 25秒'] },
+    statsText: ['ダメージ軽減 15%', '耐久 60', '持続 ∞（永続）'] },
   { id: 'shd_kite',    name: 'カイトシールド', shape: 'kite',     color: 0x6688cc, dmgReduce: 0.25, duration: 28, hp: 90,
-    statsText: ['ダメージ軽減 25%', '耐久 90', '持続 28秒'] },
+    statsText: ['ダメージ軽減 25%', '耐久 90', '持続 ∞（永続）'] },
   { id: 'shd_tower',   name: 'タワーシールド', shape: 'tower',    color: 0x888888, dmgReduce: 0.40, duration: 30, hp: 160,
-    statsText: ['ダメージ軽減 40%', '耐久 160', '持続 30秒'] },
+    statsText: ['ダメージ軽減 40%', '耐久 160', '持続 ∞（永続）'] },
   { id: 'shd_aegis',   name: 'イージスの盾',   shape: 'aegis',    color: 0xffcc44, dmgReduce: 0.35, duration: 35, hp: 140,
-    statsText: ['ダメージ軽減 35%', '耐久 140', '持続 35秒'] },
+    statsText: ['ダメージ軽減 35%', '耐久 140', '持続 ∞（永続）'] },
   { id: 'shd_spike',   name: 'スパイクシールド', shape: 'spike',  color: 0x884422, dmgReduce: 0.20, duration: 25, hp: 80, reflect: 0.5,
-    statsText: ['ダメージ軽減 20%', '耐久 80', '反射 50%', '持続 25秒'] },
+    statsText: ['ダメージ軽減 20%', '耐久 80', '反射 50%', '持続 ∞（永続）'] },
   { id: 'shd_crystal', name: 'クリスタル盾',   shape: 'crystal',  color: 0x88ffee, dmgReduce: 0.30, duration: 32, hp: 110,
-    statsText: ['ダメージ軽減 30%', '耐久 110', '持続 32秒'] },
+    statsText: ['ダメージ軽減 30%', '耐久 110', '持続 ∞（永続）'] },
   { id: 'shd_runic',   name: 'ルーンシールド', shape: 'runic',    color: 0x9966ff, dmgReduce: 0.30, duration: 35, hp: 120,
-    statsText: ['ダメージ軽減 30%', '耐久 120', '持続 35秒'] },
+    statsText: ['ダメージ軽減 30%', '耐久 120', '持続 ∞（永続）'] },
   { id: 'shd_dragon',  name: 'ドラゴンシールド', shape: 'dragon', color: 0xcc2244, dmgReduce: 0.45, duration: 30, hp: 180,
-    statsText: ['ダメージ軽減 45%', '耐久 180', '持続 30秒'] },
+    statsText: ['ダメージ軽減 45%', '耐久 180', '持続 ∞（永続）'] },
   { id: 'shd_holy',    name: '聖騎士の盾',     shape: 'holy',     color: 0xffffe0, dmgReduce: 0.40, duration: 40, hp: 200,
-    statsText: ['ダメージ軽減 40%', '耐久 200', '持続 40秒'] },
+    statsText: ['ダメージ軽減 40%', '耐久 200', '持続 ∞（永続）'] },
   { id: 'shd_void',    name: 'ヴォイドシールド', shape: 'void',   color: 0x220033, dmgReduce: 0.55, duration: 25, hp: 220, reflect: 0.3,
-    statsText: ['ダメージ軽減 55%', '耐久 220', '反射 30%', '持続 25秒'] },
+    statsText: ['ダメージ軽減 55%', '耐久 220', '反射 30%', '持続 ∞（永続）'] },
 ];
 
 // ============================================================
@@ -71,11 +72,31 @@ export const HEAL_CATALOG = [
     statsText: ['HP +60', '最大HP超過可能'] },
 ];
 
+// ============================================================
+// スコープカタログ(5種：FPSモード時のみズーム有効・永続)
+// FOV は camera.fov = baseFov / zoom で近似(zoom=1 で通常, 大きいほど狭視野=高倍率)
+// ============================================================
+export const SCOPE_CATALOG = [
+  { id: 'scope_tactical', name: 'タクティカルスコープ', color: 0x66ccff, zoom: 1.5, sensitivityMul: 0.85,
+    statsText: ['ズーム倍率 x1.5', 'FPSモード時のみ有効', '持続 ∞（永続）'] },
+  { id: 'scope_hunter',   name: 'ハンタースコープ',     color: 0x88ff77, zoom: 2.5, sensitivityMul: 0.70,
+    statsText: ['ズーム倍率 x2.5', 'FPSモード時のみ有効', '持続 ∞（永続）'] },
+  { id: 'scope_sniper',   name: 'スナイパースコープ',   color: 0xffcc44, zoom: 4.0, sensitivityMul: 0.55,
+    statsText: ['ズーム倍率 x4.0', 'FPSモード時のみ有効', '持続 ∞（永続）'] },
+  { id: 'scope_marksman', name: '長距離マークスマン',   color: 0xff6688, zoom: 6.0, sensitivityMul: 0.40,
+    statsText: ['ズーム倍率 x6.0', 'FPSモード時のみ有効', '持続 ∞（永続）'] },
+  { id: 'scope_eagle',    name: '伝説の鷹眼',           color: 0xff44ff, zoom: 10.0, sensitivityMul: 0.25,
+    statsText: ['ズーム倍率 x10.0', 'FPSモード時のみ有効', '持続 ∞（永続）'] },
+];
+
 export function getShieldById(id) {
   return SHIELD_CATALOG.find((s) => s.id === id) || SHIELD_CATALOG[0];
 }
 export function getHealById(id) {
   return HEAL_CATALOG.find((h) => h.id === id) || HEAL_CATALOG[0];
+}
+export function getScopeById(id) {
+  return SCOPE_CATALOG.find((s) => s.id === id) || SCOPE_CATALOG[0];
 }
 
 // ============================================================
@@ -814,6 +835,98 @@ class ShieldPickup {
 }
 
 // ============================================================
+// スコープの見た目(円筒＋レンズ)
+// ============================================================
+function makeScopeVisual(cfg) {
+  const group = new THREE.Group();
+  const c = cfg.color ?? 0x66ccff;
+  // 本体(黒い金属円筒)
+  const body = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.22, 0.22, 0.9, 20),
+    new THREE.MeshStandardMaterial({ color: 0x181818, roughness: 0.5, metalness: 0.7, emissive: 0x000000 })
+  );
+  body.rotation.z = Math.PI / 2; // 水平に寝かせる
+  group.add(body);
+  // レンズ(前面) — カタログ色で光らせる
+  const lens = new THREE.Mesh(
+    new THREE.CircleGeometry(0.2, 24),
+    new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 1.8, roughness: 0.2 })
+  );
+  lens.position.set(0.46, 0, 0);
+  lens.rotation.y = Math.PI / 2;
+  group.add(lens);
+  // レンズ(後面) — うっすら
+  const lensBack = new THREE.Mesh(
+    new THREE.CircleGeometry(0.18, 20),
+    new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0.6, roughness: 0.5 })
+  );
+  lensBack.position.set(-0.46, 0, 0);
+  lensBack.rotation.y = -Math.PI / 2;
+  group.add(lensBack);
+  // 上部のダイヤル
+  const dial = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.08, 0.08, 0.14, 12),
+    _matStd(0x444444, 0.2, 0.6, 0.4)
+  );
+  dial.position.set(0, 0.24, 0);
+  group.add(dial);
+  // 支柱(2本)
+  for (let i = 0; i < 2; i++) {
+    const post = new THREE.Mesh(
+      new THREE.BoxGeometry(0.08, 0.28, 0.08),
+      _matStd(0x222222, 0.1, 0.5, 0.5)
+    );
+    post.position.set(-0.2 + i * 0.4, -0.28, 0);
+    group.add(post);
+  }
+  return group;
+}
+
+// ============================================================
+// スコープピックアップ
+// ============================================================
+class ScopePickup {
+  constructor(position, scopeCfg) {
+    this.cfg = scopeCfg;
+    this.kind = 'scope';
+    this.alive = true;
+    this.radius = SCOPE_RADIUS;
+
+    const root = new THREE.Group();
+    const ped = _makePedestal(scopeCfg.color);
+    root.add(ped.group);
+    this._ring = ped.ring;
+    this._beam = ped.beam;
+
+    const model = makeScopeVisual(scopeCfg);
+    model.position.y = 1.05;
+    root.add(model);
+    this._model = model;
+
+    const halo = _makeHaloSprite(scopeCfg.color, 2.4);
+    halo.position.y = 1.05;
+    root.add(halo);
+    this._halo = halo;
+
+    this.object = root;
+    this.object.position.copy(position);
+    this._t = Math.random() * Math.PI * 2;
+  }
+  update(dt) {
+    this._t += dt;
+    this._model.rotation.y += dt * 1.6;
+    this._model.position.y = 1.05 + Math.sin(this._t * 2.2) * 0.08;
+    this._ring.material.emissiveIntensity = 1.2 + 0.6 * (0.5 + 0.5 * Math.sin(this._t * 3.0));
+    if (this._beam) this._beam.material.opacity = 0.14 + 0.08 * (0.5 + 0.5 * Math.sin(this._t * 1.8));
+    if (this._halo) {
+      const s = 2.2 + 0.22 * Math.sin(this._t * 2.6);
+      this._halo.scale.set(s, s, 1);
+      this._halo.material.opacity = 0.65 + 0.2 * (0.5 + 0.5 * Math.sin(this._t * 2.0));
+    }
+  }
+}
+
+// ============================================================
 // 回復ピックアップ
 // ============================================================
 class HealPickup {
@@ -1057,6 +1170,15 @@ class ItemManager {
     return s;
   }
 
+  addScope(position, scopeOrId) {
+    const cfg = (typeof scopeOrId === 'string') ? getScopeById(scopeOrId) : scopeOrId;
+    if (!cfg) return null;
+    const s = new ScopePickup(position, cfg);
+    this.scene.add(s.object);
+    this.items.push(s);
+    return s;
+  }
+
   // 地面に置く乗り物(復活あり)
   addVehicleGround(position, vehicleOrId) {
     const cfg = (typeof vehicleOrId === 'string') ? getVehicleById(vehicleOrId) : vehicleOrId;
@@ -1167,6 +1289,10 @@ class ItemManager {
         } else if (it.kind === 'shield') {
           if (p.equipShield) p.equipShield(it.cfg);
           events.push({ kind: 'shield', item: it, player: p, duration: it.cfg?.duration ?? 30, name: it.cfg?.name });
+          this.removeItem(it);
+        } else if (it.kind === 'scope') {
+          if (p.equipScope) p.equipScope(it.cfg);
+          events.push({ kind: 'scope', item: it, player: p, name: it.cfg?.name });
           this.removeItem(it);
         }
       }

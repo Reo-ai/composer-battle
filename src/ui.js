@@ -869,15 +869,13 @@ export class HUD {
 
   _updateStatusPanel(player) {
     if (!this._statusWeapon) return;
-    // 装備武器
+    // 装備武器（時間は撤廃したので永続表示）
     const w = player.equippedWeapon;
-    const wt = player.weaponTimer || 0;
-    this._statusWeapon.textContent = w ? `${w.name || w.id}（${wt.toFixed(1)}s）` : 'なし';
+    this._statusWeapon.textContent = w ? `${w.name || w.id}（∞）` : 'なし';
     this._statusWeapon.style.color = w ? '#ffd070' : '#888';
-    // 装備盾
+    // 装備盾（時間は撤廃したので永続表示）
     const s = player.equippedShield;
-    const st = player.shieldTimer || 0;
-    this._statusShield.textContent = s ? `${s.name || s.id}（${st.toFixed(1)}s）` : 'なし';
+    this._statusShield.textContent = s ? `${s.name || s.id}（∞）` : 'なし';
     this._statusShield.style.color = s ? '#8ad8ff' : '#888';
     // 乗り物
     const v = player.mountedVehicle;
@@ -885,21 +883,21 @@ export class HUD {
     this._statusVehicle.textContent = v ? `${v.name || v.id}（${mt.toFixed(1)}s）` : 'なし';
     this._statusVehicle.style.color = v ? '#4be0ff' : '#888';
     // ファイアブースト
-    const fb = player.fireBoostTimer || 0;
-    if (fb > 0) {
+    // 連射ブーストは倍率で判定（永続化したので "fireRateMul < 1" ならアクティブ）
+    const fireMul = player.fireRateMul ?? 1;
+    if (fireMul < 0.999) {
       this._statusBoostRow.style.display = 'block';
-      this._statusBoost.textContent = `連射UP（${fb.toFixed(1)}s）`;
+      this._statusBoost.textContent = `連射UP（∞）`;
       this._statusBoost.style.color = '#ffe066';
     } else {
       this._statusBoostRow.style.display = 'none';
     }
-    // 攻撃ブースト
-    const ab = player.weaponBoostTimer || 0;
+    // 攻撃ブーストは倍率で判定（永続化したので "bulletDmgMul > 1" ならアクティブ）
     if (this._statusAtkBoostRow) {
-      if (ab > 0) {
+      const mul = player.bulletDmgMul || 1;
+      if (mul > 1.001) {
         this._statusAtkBoostRow.style.display = 'block';
-        const mul = player.bulletDmgMul || 1;
-        this._statusAtkBoost.textContent = `x${mul.toFixed(1)}（${ab.toFixed(1)}s）`;
+        this._statusAtkBoost.textContent = `x${mul.toFixed(1)}（∞）`;
         this._statusAtkBoost.style.color = '#ff9a4d';
       } else {
         this._statusAtkBoostRow.style.display = 'none';

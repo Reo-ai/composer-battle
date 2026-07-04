@@ -14,46 +14,68 @@ const PILLAR_COLOR = 0xa0a0a8;
 // カバー物のプリセット（アリーナ中心 (0,0) 周りの相対座標）
 // { type, x, z, sx, sy, sz, rot } の単純データにしておくと配置が楽
 const LAYOUT = [
-  // -------- 東側：L字廊下 --------
-  { type: 'wall', x:  22, z:  -8, sx: 12, sy: 3.2, sz: 0.8, rot: 0 },
-  { type: 'wall', x:  28, z:  -2, sx: 0.8, sy: 3.2, sz: 12, rot: 0 },
-  { type: 'wall', x:  16, z:   0, sx: 0.8, sy: 3.2, sz: 6,  rot: 0 },
+  // -------- 東側：L字廊下（拡大版 / 建物っぽく厚みと高さを増す） --------
+  { type: 'wall', x:  24, z:  -8, sx: 18, sy: 5.5, sz: 1.4, rot: 0 },
+  { type: 'wall', x:  32, z:  -1, sx: 1.4, sy: 5.5, sz: 16, rot: 0 },
+  { type: 'wall', x:  16, z:   1, sx: 1.4, sy: 5.5, sz: 10, rot: 0 },
+  { type: 'wall', x:  20, z:   7, sx: 10, sy: 5.5, sz: 1.4, rot: 0 }, // 追加：内壁
+  { type: 'wall', x:  26, z:  10, sx: 1.4, sy: 4.0, sz: 6,  rot: 0 }, // 追加：ヨコ路の突き当り
 
-  // -------- 西側：小部屋（窓っぽい隙間つき） --------
-  { type: 'wall', x: -22, z:  -6, sx: 10, sy: 3.2, sz: 0.8, rot: 0 },
-  { type: 'wall', x: -27, z:   0, sx: 0.8, sy: 3.2, sz: 12, rot: 0 },
-  { type: 'wall', x: -22, z:   6, sx: 4,  sy: 3.2, sz: 0.8, rot: 0 },
-  { type: 'wall', x: -18, z:   6, sx: 2,  sy: 1.4, sz: 0.8, rot: 0 }, // 窓の下枠(低い壁)
-  { type: 'wall', x: -17, z:   0, sx: 0.8, sy: 3.2, sz: 4,  rot: 0 },
+  // -------- 西側：小部屋 → 二部屋建物（窓っぽい隙間つき） --------
+  { type: 'wall', x: -24, z:  -8, sx: 14, sy: 5.5, sz: 1.4, rot: 0 },
+  { type: 'wall', x: -31, z:   0, sx: 1.4, sy: 5.5, sz: 18, rot: 0 },
+  { type: 'wall', x: -22, z:   9, sx: 6,  sy: 5.5, sz: 1.4, rot: 0 },
+  { type: 'wall', x: -16, z:   9, sx: 3,  sy: 2.0, sz: 1.4, rot: 0 }, // 窓の下枠(低い壁)
+  { type: 'wall', x: -17, z:   1, sx: 1.4, sy: 5.5, sz: 6,  rot: 0 },
+  { type: 'wall', x: -24, z:   3, sx: 1.4, sy: 5.5, sz: 4,  rot: 0 }, // 追加：中仕切り
 
-  // -------- 北側：T字ジャンクション --------
-  { type: 'wall', x:   0, z:  22, sx: 14, sy: 3.2, sz: 0.8, rot: 0 },
-  { type: 'wall', x:   0, z:  28, sx: 0.8, sy: 3.2, sz: 8,  rot: 0 },
+  // -------- 北側：T字ジャンクション → 大型ゲート --------
+  { type: 'wall', x:   0, z:  24, sx: 22, sy: 6.0, sz: 1.4, rot: 0 },
+  { type: 'wall', x:   0, z:  32, sx: 1.4, sy: 6.0, sz: 14, rot: 0 },
+  { type: 'wall', x:  -8, z:  30, sx: 1.4, sy: 5.5, sz: 6,  rot: 0 }, // 追加：ゲートの左袖
+  { type: 'wall', x:   8, z:  30, sx: 1.4, sy: 5.5, sz: 6,  rot: 0 }, // 追加：ゲートの右袖
+  { type: 'wall', x:   0, z:  36, sx: 14, sy: 3.0, sz: 1.4, rot: 0 }, // 追加：奥の低壁
 
-  // -------- 南側：カバー壁の列（半身高さ） --------
-  { type: 'cover', x: -8, z: -22, sx: 3.2, sy: 1.2, sz: 0.8, rot: 0 },
-  { type: 'cover', x:  0, z: -22, sx: 3.2, sy: 1.2, sz: 0.8, rot: 0 },
-  { type: 'cover', x:  8, z: -22, sx: 3.2, sy: 1.2, sz: 0.8, rot: 0 },
-  { type: 'cover', x: -4, z: -26, sx: 3.2, sy: 1.2, sz: 0.8, rot: 0 },
-  { type: 'cover', x:  4, z: -26, sx: 3.2, sy: 1.2, sz: 0.8, rot: 0 },
+  // -------- 南側：カバー壁 + 大きなバンカー --------
+  { type: 'cover', x: -8, z: -22, sx: 4.5, sy: 1.8, sz: 1.2, rot: 0 },
+  { type: 'cover', x:  0, z: -22, sx: 4.5, sy: 1.8, sz: 1.2, rot: 0 },
+  { type: 'cover', x:  8, z: -22, sx: 4.5, sy: 1.8, sz: 1.2, rot: 0 },
+  { type: 'cover', x: -4, z: -27, sx: 4.5, sy: 1.8, sz: 1.2, rot: 0 },
+  { type: 'cover', x:  4, z: -27, sx: 4.5, sy: 1.8, sz: 1.2, rot: 0 },
+  // 南バンカー（背の高い箱建物）
+  { type: 'wall', x:  16, z: -30, sx: 12, sy: 4.8, sz: 1.4, rot: 0 }, // 前壁
+  { type: 'wall', x:  22, z: -25, sx: 1.4, sy: 4.8, sz: 10, rot: 0 }, // 右壁
+  { type: 'wall', x:  10, z: -25, sx: 1.4, sy: 4.8, sz: 10, rot: 0 }, // 左壁
+  { type: 'wall', x: -16, z: -30, sx: 12, sy: 4.8, sz: 1.4, rot: 0 }, // 対称：西南バンカー前壁
+  { type: 'wall', x: -22, z: -25, sx: 1.4, sy: 4.8, sz: 10, rot: 0 },
+  { type: 'wall', x: -10, z: -25, sx: 1.4, sy: 4.8, sz: 10, rot: 0 },
 
-  // -------- 柱（縦長ピラー） --------
-  { type: 'pillar', x:  18, z:  18, sx: 1.4, sy: 4.8, sz: 1.4, rot: 0 },
-  { type: 'pillar', x: -18, z:  18, sx: 1.4, sy: 4.8, sz: 1.4, rot: 0 },
-  { type: 'pillar', x:  18, z: -18, sx: 1.4, sy: 4.8, sz: 1.4, rot: 0 },
-  { type: 'pillar', x: -18, z: -18, sx: 1.4, sy: 4.8, sz: 1.4, rot: 0 },
-  { type: 'pillar', x:   0, z:   0, sx: 1.2, sy: 4.2, sz: 1.2, rot: 0 }, // 中央
-  { type: 'pillar', x:  10, z:  10, sx: 1.0, sy: 3.6, sz: 1.0, rot: 0 },
-  { type: 'pillar', x: -10, z:  10, sx: 1.0, sy: 3.6, sz: 1.0, rot: 0 },
-  { type: 'pillar', x:  10, z: -10, sx: 1.0, sy: 3.6, sz: 1.0, rot: 0 },
-  { type: 'pillar', x: -10, z: -10, sx: 1.0, sy: 3.6, sz: 1.0, rot: 0 },
+  // -------- 柱（縦長ピラー：拡大） --------
+  { type: 'pillar', x:  18, z:  18, sx: 2.0, sy: 6.5, sz: 2.0, rot: 0 },
+  { type: 'pillar', x: -18, z:  18, sx: 2.0, sy: 6.5, sz: 2.0, rot: 0 },
+  { type: 'pillar', x:  18, z: -18, sx: 2.0, sy: 6.5, sz: 2.0, rot: 0 },
+  { type: 'pillar', x: -18, z: -18, sx: 2.0, sy: 6.5, sz: 2.0, rot: 0 },
+  { type: 'pillar', x:   0, z:   0, sx: 1.8, sy: 5.5, sz: 1.8, rot: 0 }, // 中央
+  { type: 'pillar', x:  10, z:  10, sx: 1.5, sy: 5.0, sz: 1.5, rot: 0 },
+  { type: 'pillar', x: -10, z:  10, sx: 1.5, sy: 5.0, sz: 1.5, rot: 0 },
+  { type: 'pillar', x:  10, z: -10, sx: 1.5, sy: 5.0, sz: 1.5, rot: 0 },
+  { type: 'pillar', x: -10, z: -10, sx: 1.5, sy: 5.0, sz: 1.5, rot: 0 },
+  // 追加：外周の巨大ピラー4本（遠距離のランドマーク兼カバー）
+  { type: 'pillar', x:  38, z:  38, sx: 3.2, sy: 9.0, sz: 3.2, rot: 0 },
+  { type: 'pillar', x: -38, z:  38, sx: 3.2, sy: 9.0, sz: 3.2, rot: 0 },
+  { type: 'pillar', x:  38, z: -38, sx: 3.2, sy: 9.0, sz: 3.2, rot: 0 },
+  { type: 'pillar', x: -38, z: -38, sx: 3.2, sy: 9.0, sz: 3.2, rot: 0 },
 
-  // -------- 高台（プラットフォーム + 階段） --------
-  { type: 'platform', x: 34, z:  8, sx: 8, sy: 2.4, sz: 6, rot: 0 },
-  { type: 'stair',    x: 30, z:  8, sx: 3, sy: 1.2, sz: 6, rot: 0 },
+  // -------- 高台（プラットフォーム + 階段：拡大 & 増設） --------
+  { type: 'platform', x: 36, z:  10, sx: 12, sy: 3.6, sz: 10, rot: 0 },
+  { type: 'stair',    x: 29, z:  10, sx: 4,  sy: 1.8, sz: 8,  rot: 0 },
 
-  { type: 'platform', x: -34, z: -8, sx: 8, sy: 2.4, sz: 6, rot: 0 },
-  { type: 'stair',    x: -30, z: -8, sx: 3, sy: 1.2, sz: 6, rot: 0 },
+  { type: 'platform', x: -36, z: -10, sx: 12, sy: 3.6, sz: 10, rot: 0 },
+  { type: 'stair',    x: -29, z: -10, sx: 4,  sy: 1.8, sz: 8,  rot: 0 },
+
+  // 追加高台：北奥（狙撃ポジション）
+  { type: 'platform', x:   0, z:  42, sx: 10, sy: 4.0, sz: 8, rot: 0 },
+  { type: 'stair',    x:   0, z:  36, sx: 6,  sy: 2.0, sz: 4, rot: 0 },
 ];
 
 export function buildCoverLayout(scene) {

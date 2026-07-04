@@ -20,7 +20,7 @@ import { buildStage, STAGE_BOUNDS, getTerrainHeightAt } from './stage.js';
 import { buildCoverLayout } from './cover.js';
 import { EffectManager } from './effects.js';
 import { AudioBus } from './audio.js';
-import { ItemManager, SHIELD_CATALOG, HEAL_CATALOG } from './items.js';
+import { ItemManager, SHIELD_CATALOG, HEAL_CATALOG, SCOPE_CATALOG } from './items.js';
 import { getAllWeapons } from './weapons.js';
 import { VEHICLES } from './vehicles.js';
 import { initMobileControls } from './mobile-controls.js';
@@ -104,9 +104,9 @@ fpsWeaponHud.style.cssText = [
 ].join(';');
 // dataset 定義: FPS用武器スロット(既存のキャラID流用)
 const FPS_WEAPON_SLOTS = [
-  { id: 'cat_neko', key: '1', label: 'ネコ' },
-  { id: 'sensei',   key: '2', label: 'センセイ' },
-  { id: 'owl_oto',  key: '3', label: 'オト' },
+  { id: 'cat_neko', key: '4', label: 'ネコ' },
+  { id: 'sensei',   key: '5', label: 'センセイ' },
+  { id: 'owl_oto',  key: '6', label: 'オト' },
 ];
 for (const s of FPS_WEAPON_SLOTS) {
   const slot = document.createElement('div');
@@ -142,8 +142,9 @@ const fpsMinimap = document.createElement('canvas');
 fpsMinimap.id = 'fps-minimap';
 fpsMinimap.width = 180;
 fpsMinimap.height = 180;
+// 通常ミニマップ（right:16px, width:200px）の左に配置：right = 16 + 200 + 16 = 232px
 fpsMinimap.style.cssText = [
-  'position:fixed', 'right:22px', 'top:22px',
+  'position:fixed', 'right:232px', 'top:70px',
   'width:180px', 'height:180px',
   'border-radius:50%',
   'background:rgba(8,12,20,0.5)',
@@ -153,6 +154,37 @@ fpsMinimap.style.cssText = [
 ].join(';');
 document.body.appendChild(fpsMinimap);
 const fpsMinimapCtx = fpsMinimap.getContext('2d');
+
+// ---- モード切替ヒント（左下）: [F] キーで FPS ↔ アクション ----
+const modeHint = document.createElement('div');
+modeHint.id = 'mode-hint';
+modeHint.style.cssText = [
+  'position:fixed', 'left:22px', 'bottom:22px',
+  'padding:10px 14px',
+  'background:rgba(8,12,20,0.55)',
+  'border:1px solid rgba(180,220,255,0.35)',
+  'border-radius:8px',
+  'color:#e8f2ff', 'font-family:sans-serif', 'font-size:13px',
+  'letter-spacing:0.02em', 'line-height:1.4',
+  'box-shadow:0 2px 8px rgba(0,0,0,0.4)',
+  'pointer-events:none', 'z-index:9998',
+].join(';');
+modeHint.innerHTML = `
+  <div style="display:flex;align-items:center;gap:8px;">
+    <span style="display:inline-flex;align-items:center;justify-content:center;
+                 min-width:22px;height:22px;padding:0 6px;
+                 background:rgba(255,255,255,0.12);
+                 border:1px solid rgba(180,220,255,0.5);
+                 border-radius:4px;font-weight:bold;">F</span>
+    <span id="mode-hint-text">FPSモードへ切替</span>
+  </div>
+`;
+document.body.appendChild(modeHint);
+const modeHintText = modeHint.querySelector('#mode-hint-text');
+function updateModeHint() {
+  if (!modeHintText) return;
+  modeHintText.textContent = (gameMode === 'fps') ? 'アクションモードへ戻る' : 'FPSモードへ切替';
+}
 const FPS_MINIMAP_RANGE = 80; // ワールド単位半径
 function drawFpsMinimap() {
   const cx = fpsMinimap.width / 2;
@@ -253,10 +285,23 @@ function drawFpsMinimap() {
 const scene = new THREE.Scene();
 
 // ---- カメラ ----
+const BASE_FOV = 65;
 const camera = new THREE.PerspectiveCamera(
-  65, window.innerWidth / window.innerHeight, 0.1, 1000
+  BASE_FOV, window.innerWidth / window.innerHeight, 0.1, 1000
 );
 camera.position.set(0, 5, 10);
+
+// スコープ状態に応じて FOV を更新する。
+// - FPSモードでスコープ装備時: FOV を zoom で割る（拡大鏡）
+// - それ以外: BASE_FOV を維持
+function updateScopeFov() {
+  const zoom = (gameMode === 'fps' && player && player.equippedScope) ? (player.scopeZoom || 1) : 1;
+  const targetFov = BASE_FOV / zoom;
+  if (Math.abs(camera.fov - targetFov) > 0.01) {
+    camera.fov = targetFov;
+    camera.updateProjectionMatrix();
+  }
+}
 
 // ---- ポストプロセス（Bloom + Vignette + Output/ToneMapping） ----
 // renderer.toneMapping を OutputPass に任せるため、ここでは無効化
@@ -478,13 +523,26 @@ function startFpsReload() {
   updateFpsAmmoHud();
 }
 
+// FPSモード時は自機モデル + 装備盾を非表示、アクションモード時は表示
+// キャラ切替後 (player.object が新しい Group に差し替わった後) にも呼び直す必要がある
+function applyPlayerVisibilityForMode() {
+  const visible = (gameMode !== 'fps');
+  if (player && player.object) player.object.visible = visible;
+  // 旧参照の playerChar が残っていても念のため
+  if (playerChar) playerChar.visible = visible;
+  // 盾モデルは player.object の子だが、明示的にも制御する（安全策）
+  if (player && player.equippedShieldModel) {
+    player.equippedShieldModel.visible = visible;
+  }
+}
+
 function setGameMode(mode) {
   if (mode !== 'action' && mode !== 'fps') return;
   if (gameMode === mode) return;
   gameMode = mode;
   followCam = (mode === 'fps') ? firstPersonCam : thirdPersonCam;
-  // プレイヤーモデルの表示切替（一人称のときは自機を非表示）
-  if (playerChar) playerChar.visible = (mode !== 'fps');
+  // プレイヤーモデル & 装備の表示切替（一人称のときは自機と盾を非表示）
+  applyPlayerVisibilityForMode();
   // FPS 用 UI の表示切替
   fpsCrosshair.style.display = (mode === 'fps') ? 'block' : 'none';
   fpsAmmoHud.style.display = (mode === 'fps') ? 'block' : 'none';
@@ -497,6 +555,8 @@ function setGameMode(mode) {
     drawFpsMinimap();
     updateFpsWeaponHud();
   }
+  updateScopeFov();
+  updateModeHint();
 }
 
 // F キー = 視点切替 / R キー = FPS 中のリロード
@@ -634,6 +694,12 @@ function spawnDefaultItems() {
     items.addHeal(pos, h, { respawn: 14 });
   });
 
+  // スコープピックアップ：5種類(FPSモード時のみFOV倍率で効果あり)
+  SCOPE_CATALOG.forEach((s) => {
+    const pos = pickGroundPos(45, 1.6);
+    items.addScope(pos, s);
+  });
+
   // 乗り物：地上配置（他アイテムと分離した専用スロットで均等散布）
   VEHICLES.forEach((v) => {
     const isLeg = !!v.legendary;
@@ -682,6 +748,8 @@ function switchCharacter(id) {
   }
   // FPS 用武器スロットHUDの現在選択を更新
   updateFpsWeaponHud();
+  // 新キャラの表示状態を現在のモードに合わせる（FPSなら不可視のまま維持）
+  applyPlayerVisibilityForMode();
 }
 window.addEventListener('keydown', (e) => {
   // 初回入力でWebAudioを起動（ブラウザのautoplayポリシー対応）
@@ -689,6 +757,10 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Digit1') switchCharacter('cat_neko');
   if (e.code === 'Digit2') switchCharacter('sensei');
   if (e.code === 'Digit3') switchCharacter('owl_oto');
+  // FPS モード用の武器スロット (4/5/6) — 1/2/3 と同じキャラ切替を行う
+  if (e.code === 'Digit4') switchCharacter('cat_neko');
+  if (e.code === 'Digit5') switchCharacter('sensei');
+  if (e.code === 'Digit6') switchCharacter('owl_oto');
   if (e.code === 'KeyR' && gameState === 'gameover') restart();
   if (e.code === 'KeyP' || e.code === 'Escape') togglePause();
 });
@@ -1331,6 +1403,14 @@ function animate() {
         audio.shoot?.();
         const nm = ev.name || '盾';
         hud.showPickupMessage?.(`${nm} GET! ${ev.duration}秒`);
+      } else if (ev.kind === 'scope') {
+        // スコープピックアップ：紫系の火花＋SE、FPS時のみ即時反映
+        effects.spawnHitBurst?.(player.object.position.clone(), 0xff88ff);
+        audio.shoot?.();
+        const nm = ev.name || 'スコープ';
+        const z = (ev.item?.cfg?.zoom ?? 1).toFixed(1);
+        hud.showPickupMessage?.(`${nm} GET! x${z} (FPS時)`);
+        updateScopeFov();
       }
     }
   }
@@ -1341,6 +1421,9 @@ function animate() {
   hud.updatePlayer(player);
   hud.updateEnemies(enemies, camera);
   hud.updateMinimap?.(player, enemies, items);
+
+  // スコープ FOV 更新(モード/装備変化に追従)
+  updateScopeFov();
 
   checkGameOver();
 
