@@ -1848,10 +1848,12 @@ export class Player {
     }
 
     // 視点回転（Pointer Lock 中のマウス移動量で yaw/pitch を更新）
+    // スコープ装備時は scopeSensitivityMul で感度を下げる（高倍率ほど鈍く）
     if (input.consumeMouseDelta) {
       const { dx, dy } = input.consumeMouseDelta();
-      this.yaw   -= dx * MOUSE_YAW_SENS;
-      this.pitch -= dy * MOUSE_PITCH_SENS;
+      const sensMul = this.scopeSensitivityMul ?? 1;
+      this.yaw   -= dx * MOUSE_YAW_SENS   * sensMul;
+      this.pitch -= dy * MOUSE_PITCH_SENS * sensMul;
     }
     this.pitch = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, this.pitch));
 

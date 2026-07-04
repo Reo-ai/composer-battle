@@ -54,6 +54,38 @@ fpsCrosshair.innerHTML = `
 `;
 document.body.appendChild(fpsCrosshair);
 
+// ---- 装備中スコープ表示バッジ（FPS/アクション両モードで表示） ----
+const scopeBadge = document.createElement('div');
+scopeBadge.id = 'scope-badge';
+scopeBadge.style.cssText = [
+  'position:fixed', 'right:22px', 'top:22px',
+  'padding:6px 12px', 'border-radius:20px',
+  'background:rgba(30,10,40,0.65)',
+  'color:#ffb0ff', 'font:700 13px/1.2 system-ui,-apple-system,sans-serif',
+  'letter-spacing:0.05em', 'pointer-events:none', 'z-index:9998',
+  'display:none', 'text-shadow:0 1px 2px rgba(0,0,0,0.6)',
+  'border:1px solid rgba(255,140,255,0.5)',
+  'box-shadow:0 2px 12px rgba(255,80,255,0.25)',
+].join(';');
+scopeBadge.innerHTML = `<span id="scope-badge-icon">🎯</span> <span id="scope-badge-text">-</span>`;
+document.body.appendChild(scopeBadge);
+const scopeBadgeText = scopeBadge.querySelector('#scope-badge-text');
+function updateScopeBadge() {
+  if (!player || !player.equippedScope) {
+    scopeBadge.style.display = 'none';
+    return;
+  }
+  const sc = player.equippedScope;
+  const z = player.scopeZoom || 1;
+  const isFps = (typeof gameMode !== 'undefined' && gameMode === 'fps');
+  scopeBadgeText.textContent = `${sc.name || sc.id}  x${z.toFixed(1)}${isFps ? '' : ' (F でFPS)'}`;
+  // FPS 時は明るく、アクション時は少し薄めに
+  scopeBadge.style.opacity = isFps ? '1' : '0.72';
+  scopeBadge.style.display = 'flex';
+  scopeBadge.style.alignItems = 'center';
+  scopeBadge.style.gap = '6px';
+}
+
 // ---- FPS 用 HUD (弾数/リロード) ----
 const fpsAmmoHud = document.createElement('div');
 fpsAmmoHud.id = 'fps-ammo';
@@ -1433,6 +1465,7 @@ function animate() {
 
   // スコープ FOV 更新(モード/装備変化に追従。毎フレーム呼ぶがSEは装備/ピックアップ側で鳴らす)
   updateScopeFov(true);
+  updateScopeBadge();
 
   checkGameOver();
 

@@ -247,6 +247,7 @@ export class HUD {
           <div data-row="weapon">🗡 武器: <span data-val="weapon">なし</span></div>
           <div data-row="shield">🛡 盾: <span data-val="shield">なし</span></div>
           <div data-row="vehicle">🛞 乗り物: <span data-val="vehicle">なし</span></div>
+          <div data-row="scope" style="display:none;">🎯 スコープ: <span data-val="scope"></span></div>
           <div data-row="boost" style="display:none;">⚡ 連射: <span data-val="boost"></span></div>
           <div data-row="atkBoost" style="display:none;">💥 攻撃UP: <span data-val="atkBoost"></span></div>
         </div>
@@ -313,6 +314,8 @@ export class HUD {
     this._statusUltName = this.statusPanel.querySelector('[data-val="ultName"]');
     this._statusAtkBoost = this.statusPanel.querySelector('[data-val="atkBoost"]');
     this._statusAtkBoostRow = this.statusPanel.querySelector('[data-row="atkBoost"]');
+    this._statusScope = this.statusPanel.querySelector('[data-val="scope"]');
+    this._statusScopeRow = this.statusPanel.querySelector('[data-row="scope"]');
     this._statusParamHp = this.statusPanel.querySelector('[data-val="paramHp"]');
     this._statusParamSpd = this.statusPanel.querySelector('[data-val="paramSpd"]');
     this._statusParamAtk = this.statusPanel.querySelector('[data-val="paramAtk"]');
@@ -882,6 +885,18 @@ export class HUD {
     const mt = player.mountTimer || 0;
     this._statusVehicle.textContent = v ? `${v.name || v.id}（${mt.toFixed(1)}s）` : 'なし';
     this._statusVehicle.style.color = v ? '#4be0ff' : '#888';
+    // 装備スコープ（FPSモードで効果、常時倍率表示）
+    if (this._statusScopeRow) {
+      const sc = player.equippedScope;
+      if (sc) {
+        const z = player.scopeZoom || 1;
+        this._statusScopeRow.style.display = 'block';
+        this._statusScope.textContent = `${sc.name || sc.id}  x${z.toFixed(1)}（∞）`;
+        this._statusScope.style.color = '#ff88ff';
+      } else {
+        this._statusScopeRow.style.display = 'none';
+      }
+    }
     // ファイアブースト
     // 連射ブーストは倍率で判定（永続化したので "fireRateMul < 1" ならアクティブ）
     const fireMul = player.fireRateMul ?? 1;
