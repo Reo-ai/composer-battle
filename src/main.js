@@ -294,12 +294,21 @@ camera.position.set(0, 5, 10);
 // スコープ状態に応じて FOV を更新する。
 // - FPSモードでスコープ装備時: FOV を zoom で割る（拡大鏡）
 // - それ以外: BASE_FOV を維持
-function updateScopeFov() {
+let _lastScopeZoom = 1;
+function updateScopeFov(silent = false) {
   const zoom = (gameMode === 'fps' && player && player.equippedScope) ? (player.scopeZoom || 1) : 1;
   const targetFov = BASE_FOV / zoom;
   if (Math.abs(camera.fov - targetFov) > 0.01) {
     camera.fov = targetFov;
     camera.updateProjectionMatrix();
+  }
+  // ズーム倍率が変わったタイミングでSEを鳴らす（毎フレームの微差は無視）
+  if (!silent && Math.abs(zoom - _lastScopeZoom) > 0.01) {
+    const on = zoom > _lastScopeZoom;
+    audio.scopeZoom?.(zoom, on);
+    _lastScopeZoom = zoom;
+  } else if (silent) {
+    _lastScopeZoom = zoom;
   }
 }
 
@@ -1404,13 +1413,13 @@ function animate() {
         const nm = ev.name || '盾';
         hud.showPickupMessage?.(`${nm} GET! ${ev.duration}秒`);
       } else if (ev.kind === 'scope') {
-        // スコープピックアップ：紫系の火花＋SE、FPS時のみ即時反映
+        // スコープピックアップ：紫系の火花＋専用SE、FPS時のみ即時反映
         effects.spawnHitBurst?.(player.object.position.clone(), 0xff88ff);
-        audio.shoot?.();
+        const zoomN = ev.item?.cfg?.zoom ?? 1;
+        audio.scopePickup?.(zoomN);
         const nm = ev.name || 'スコープ';
-        const z = (ev.item?.cfg?.zoom ?? 1).toFixed(1);
-        hud.showPickupMessage?.(`${nm} GET! x${z} (FPS時)`);
-        updateScopeFov();
+        hud.showPickupMessage?.(`${nm} GET! x${zoomN.toFixed(1)} (FPS時)`);
+        updateScopeFov(true); // ピックアップSEを鳴らしたのでズームSEは無音
       }
     }
   }
@@ -1422,8 +1431,8 @@ function animate() {
   hud.updateEnemies(enemies, camera);
   hud.updateMinimap?.(player, enemies, items);
 
-  // スコープ FOV 更新(モード/装備変化に追従)
-  updateScopeFov();
+  // スコープ FOV 更新(モード/装備変化に追従。毎フレーム呼ぶがSEは装備/ピックアップ側で鳴らす)
+  updateScopeFov(true);
 
   checkGameOver();
 

@@ -719,6 +719,52 @@ export class AudioBus {
     this._noiseBurst(0.05, 4000, 1200, 1.2, 0.28, 'bandpass');
   }
 
+  // スコープアイテム取得: 金属的な短いピキン + 高域チャイム
+  scopePickup(zoom = 1) {
+    if (!this._ready || this.muted) return;
+    const t = this.ctx.currentTime;
+    // ベース: 金属クリック（BPノイズ）
+    this._noiseBurst(0.06, 4200, 1600, 2.0, 0.28, 'bandpass');
+    // 高域チャイム: ズーム倍率が高いほど高く長く鳴る
+    const base = 1600 + Math.min(2400, zoom * 220);
+    const dur = 0.22 + Math.min(0.25, zoom * 0.03);
+    this._tonePing('sine', base, base * 2.0, dur, 0.18);
+    this._tonePing('triangle', base * 0.75, base * 1.5, dur * 0.8, 0.10);
+  }
+
+  // FPS用: スコープのズームイン/アウト（ソフトなカチッ + サブ低音）
+  scopeZoom(zoom = 1, on = true) {
+    if (!this._ready || this.muted) return;
+    const t = this.ctx.currentTime;
+    // メカニカルクリック
+    const osc = this.ctx.createOscillator();
+    osc.type = 'square';
+    const f0 = on ? 900 : 700;
+    const f1 = on ? 320 : 220;
+    osc.frequency.setValueAtTime(f0, t);
+    osc.frequency.exponentialRampToValueAtTime(f1, t + 0.05);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.16, t + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
+    osc.connect(g).connect(this.master);
+    osc.start(t);
+    osc.stop(t + 0.1);
+    // サブ: 倍率に応じた低音のブーン
+    const sub = this.ctx.createOscillator();
+    sub.type = 'sine';
+    const sf = on ? Math.max(80, 220 - zoom * 12) : 60;
+    sub.frequency.setValueAtTime(sf * 1.4, t);
+    sub.frequency.exponentialRampToValueAtTime(sf, t + 0.18);
+    const sg = this.ctx.createGain();
+    sg.gain.setValueAtTime(0.0001, t);
+    sg.gain.exponentialRampToValueAtTime(0.08, t + 0.02);
+    sg.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+    sub.connect(sg).connect(this.master);
+    sub.start(t);
+    sub.stop(t + 0.24);
+  }
+
   // FPS用: 足音（軽い低域ノイズ）
   footstep() {
     if (!this._ready || this.muted) return;
