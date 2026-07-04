@@ -582,6 +582,10 @@ function setGameMode(mode) {
   if (gameMode === mode) return;
   gameMode = mode;
   followCam = (mode === 'fps') ? firstPersonCam : thirdPersonCam;
+  // Player 側にモードを伝える(FPS 時のみ Space ジャンプ + 重力を有効化)
+  if (typeof player !== 'undefined' && player) {
+    player.fpsMode = (mode === 'fps');
+  }
   // プレイヤーモデル & 装備の表示切替（一人称のときは自機と盾を非表示）
   applyPlayerVisibilityForMode();
   // FPS 用 UI の表示切替

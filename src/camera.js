@@ -85,8 +85,11 @@ export class FirstPersonCamera {
     const yaw = this.target.yaw;
     const pitch = this.target.pitch;
 
-    // 目線位置
-    this.camera.position.set(p.x, p.y + FPS_EYE_HEIGHT, p.z);
+    // 目線位置(Player の視覚オフセット、たとえば着地時の沈み込みを反映)
+    const yOffset = (typeof this.target.getCameraYOffset === 'function')
+      ? this.target.getCameraYOffset()
+      : 0;
+    this.camera.position.set(p.x, p.y + FPS_EYE_HEIGHT + yOffset, p.z);
 
     // シェイク
     if (this._shakeMag > 0.001) {

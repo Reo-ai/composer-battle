@@ -411,6 +411,14 @@ export class Player {
     this.equippedScope = null;        // items.js の SCOPE_CATALOG entry
     this.scopeZoom = 1;               // 1 = 等倍
     this.scopeSensitivityMul = 1;     // マウス感度倍率
+    // FPSモードフラグ(main.js の setGameMode で更新)
+    this.fpsMode = false;
+    // FPSジャンプ関連
+    this._grounded = true;
+    this._jumpStartY = 0;
+    this._jumpPeakDy = 0;            // 空中中の最高到達高度(発射位置比)
+    this._landCrouch = 0;            // 着地時の沈み込み量(視覚オフセット用)
+    this._spaceHeld = false;         // 連射で毎フレームジャンプするのを防止
     this.mountedVehicle = null;       // vehicles.js のカタログ entry
     this.mountedVehicleModel = null;  // object 直下にぶら下げる THREE.Object3D
     this.mountTimer = 0;
@@ -499,6 +507,11 @@ export class Player {
 
   getForwardXZ() {
     return new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
+  }
+
+  // FPS カメラ用の縦オフセット(着地時に沈み込ませる)
+  getCameraYOffset() {
+    return -(this._landCrouch || 0);
   }
 
   getMuzzlePosition() {
@@ -1897,6 +1910,10 @@ export class Player {
         wish.y *= ab;
       }
     }
+    // FPS モード(乗り物なし)は ArrowUp/Down での自由上下移動を封じ、
+    // 縦方向は完全にジャンプ+重力に任せる
+    const _fpsPhysics = (this.fpsMode && !_veh);
+    if (_fpsPhysics) wish.y = 0;
 
     if (wish.lengthSq() > 0) wish.normalize();
 
@@ -1955,7 +1972,8 @@ export class Player {
       const accelScale = Math.max(1, speedMul);
       this.velocity.x += wish.x * ACCEL * accelScale * dt;
       this.velocity.z += wish.z * ACCEL * accelScale * dt;
-      this.velocity.y += wish.y * ACCEL * accelScale * dt;
+      // FPS モード(徒歩)では縦速度は重力+ジャンプ専用にするため wish加速はスキップ
+      if (!_fpsPhysics) this.velocity.y += wish.y * ACCEL * accelScale * dt;
 
       // 空中ドリフト車両は水平方向の減衰を緩める(慣性的に滑る)
       let dampMul = 1;
@@ -1963,7 +1981,23 @@ export class Player {
       const damp = Math.exp(-DAMPING * dampMul * dt);
       this.velocity.x *= damp;
       this.velocity.z *= damp;
-      this.velocity.y *= damp;
+      // FPS モード(徒歩)では縦速度の damping をスキップ(重力が消えるのを防ぐ)
+      if (!_fpsPhysics) this.velocity.y *= damp;
+
+      // FPS モード(徒歩): 重力 & Space ジャンプ
+      if (_fpsPhysics) {
+        const GRAVITY = 26;   // m/s^2 (少し重めで着地感を出す)
+        const JUMP_V  = 8.5;  // 初速 → 頂点約 1.4m
+        this.velocity.y -= GRAVITY * dt;
+        const spaceNow = input.isDown('Space');
+        if (spaceNow && !this._spaceHeld && this._grounded) {
+          this.velocity.y = JUMP_V;
+          this._jumpStartY = this.object.position.y;
+          this._jumpPeakDy = 0;
+          this._grounded = false;
+        }
+        this._spaceHeld = spaceNow;
+      }
       const charSpeedScale = (this.baseMoveSpeed ?? 6) / 6;
       const maxFlat = MOVE_SPEED * speedMul * charSpeedScale;
       let maxAsc  = ASCEND_SPEED * speedMul * charSpeedScale;
@@ -1986,8 +2020,14 @@ export class Player {
         this.velocity.x *= s;
         this.velocity.z *= s;
       }
-      if (this.velocity.y >  maxAsc)  this.velocity.y =  maxAsc;
-      if (this.velocity.y < -maxDesc) this.velocity.y = -maxDesc;
+      // FPS モード(徒歩)は縦速度の上限を独自にする(ジャンプ初速と自由落下を許容)
+      if (_fpsPhysics) {
+        if (this.velocity.y >  12) this.velocity.y =  12;
+        if (this.velocity.y < -30) this.velocity.y = -30;
+      } else {
+        if (this.velocity.y >  maxAsc)  this.velocity.y =  maxAsc;
+        if (this.velocity.y < -maxDesc) this.velocity.y = -maxDesc;
+      }
     }
 
     // 位置更新
@@ -2018,6 +2058,35 @@ export class Player {
     if (this.object.position.y > groundY + 50) {
       this.object.position.y = groundY + 50;
       if (this.velocity.y > 0) this.velocity.y = 0;
+    }
+
+    // FPS モード(徒歩): 空中中の最高高度を追跡し、着地時にその分だけ視覚的に沈ませる
+    if (_fpsPhysics) {
+      const onGround = (this.object.position.y <= minY + 0.001);
+      if (!this._grounded) {
+        const dy = this.object.position.y - this._jumpStartY;
+        if (dy > this._jumpPeakDy) this._jumpPeakDy = dy;
+        if (onGround) {
+          // 着地: ジャンプで昇った分だけ沈む(最大 1.4m、視覚のみ)
+          this._landCrouch = Math.min(this._jumpPeakDy, 1.4);
+          this._jumpPeakDy = 0;
+          this._grounded = true;
+        }
+      } else if (!onGround) {
+        // 段差から落ちた等
+        this._grounded = false;
+        this._jumpStartY = this.object.position.y;
+        this._jumpPeakDy = 0;
+      }
+      // 沈み込みは指数的にスプリングバック(約 0.15s で 1/e)
+      this._landCrouch *= Math.exp(-7 * dt);
+      if (this._landCrouch < 0.002) this._landCrouch = 0;
+    } else {
+      // 非FPS時は状態をリセット
+      this._grounded = true;
+      this._jumpPeakDy = 0;
+      this._landCrouch = 0;
+      this._spaceHeld = false;
     }
 
     // 地上専用車両は最大高度を制限(地表 + maxAltitude)
