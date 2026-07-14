@@ -35,6 +35,13 @@ const DASH_DAMPING = 1.2;
 const DASH_COOLDOWN = 0.45;
 const DASH_TILT = 0.35; // ダッシュ中の機体傾き
 
+// 通常移動（徒歩）
+const WALK_MUL = 0.82;         // 徒歩の通常速度を少しゆっくりに(-18%)
+
+// 継続スプリント（W ダブルクリックで発動、押している間ちょっと速い）
+const SPRINT_MUL = 2.1;        // 通常移動速度の倍率(従来1.4の1.5倍=+110%)
+const W_DOUBLE_WINDOW = 0.28;  // ダブルクリック判定の猶予(秒)
+
 // 剣の待機姿勢
 const SWORD_REST_ANGLE = -Math.PI / 3;
 
@@ -408,18 +415,21 @@ export class Player {
     this.shieldReflect = 0;
     this.dmgReduce = 0;               // 盾効果(0〜1)
     // スコープ装備(FPSモード時のみFOVを絞る)
-    this.equippedScope = null;        // items.js の SCOPE_CATALOG entry
-    this.scopeZoom = 1;               // 1 = 等倍
+    this.equippedScope = null;        // 廃止予定: 常に null(絶対優先はしない)
+    this.scopeZoom = 1;               // 1 = 等倍(現在選択中の倍率)
     this.scopeSensitivityMul = 1;     // マウス感度倍率
-    // 常時搭載の内蔵スコープ(Oキーで循環): 0=1x(オフ), 1=2x, 2=3x, 3=5x
-    // 拾ったスコープ(equippedScope)が装備中はそちらが優先される
+    // Oキーで循環する倍率リスト。先頭4つは常時搭載の内蔵スコープ。
+    // 拾ったスコープはこのリストへ「追加」され、Oキーで選べる選択肢が増える方式。
+    // (拾った瞬間に絶対その倍率になるのではなく、あくまで選択肢が増えるだけ)
     this._builtinScopeIdx = 0;
-    this._builtinScopeLevels = [
-      { zoom: 1, sensMul: 1 },        // 1x: オフ
-      { zoom: 2, sensMul: 0.80 },     // 2x
-      { zoom: 3, sensMul: 0.65 },     // 3x
-      { zoom: 5, sensMul: 0.45 },     // 5x
+    this._baseScopeLevels = [
+      { zoom: 1, sensMul: 1,    label: 'オフ' },     // 1x: オフ
+      { zoom: 2, sensMul: 0.80, label: '内蔵 x2' },  // 2x
+      { zoom: 3, sensMul: 0.65, label: '内蔵 x3' },  // 3x
+      { zoom: 5, sensMul: 0.45, label: '内蔵 x5' },  // 5x
     ];
+    // 実際に循環する現在のリスト(内蔵 + 拾ったスコープ)。試合終了で内蔵のみに戻す。
+    this._builtinScopeLevels = this._baseScopeLevels.slice();
     // FPSモードフラグ(main.js の setGameMode で更新)
     this.fpsMode = false;
     // FPSジャンプ関連
@@ -496,6 +506,12 @@ export class Player {
     this.dashCooldown = 0;
     this.dashDir = new THREE.Vector3();
     this._dashWasDown = false;
+
+    // 継続スプリント（W ダブルクリック）
+    this._wWasDown = false;    // 前フレームの W 押下状態
+    this._wLastPressT = -999;  // 直近で W を押した時刻
+    this._sprintTime = 0;      // 経過時間の累積（ダブルクリック判定用）
+    this._sprintActive = false;
 
     // 腕の参照（差し替え時に再収集）
     this._armL = null;
@@ -605,15 +621,15 @@ export class Player {
     if (this.equippedWeaponModel && this.equippedWeaponModel.parent) {
       this.equippedWeaponModel.parent.remove(this.equippedWeaponModel);
     }
-    // デフォルト剣を非表示にし、新モデルを armR(_armR) にぶら下げる
+    // デフォルト剣を非表示にし、新モデルを左手(_armL) にぶら下げる
     if (this.sword) this.sword.visible = false;
     const model = weaponCfg.factory ? weaponCfg.factory() : null;
     if (model) {
-      // 持ち手として armR にアタッチ(swordHolder の親)
-      const parent = (this.swordHolder && this.swordHolder.parent) ? this.swordHolder.parent : this.object;
-      parent.add(model);
-      // 武器ごとに少し位置補正
-      model.position.set(0, -0.4, 0.0);
+      // 武器モデルはグリップが原点にくるよう設計されている(weapons.js)。
+      // デフォルト剣と全く同じ swordHolder 直下に、同じ姿勢でアタッチする。
+      // これで拾った武器も左手に正しく持てる(体の後ろに回らない)。
+      this.swordHolder.add(model);
+      model.position.set(0, 0, 0);
       model.rotation.set(SWORD_REST_ANGLE, 0, 0);
       this.equippedWeaponModel = model;
     }
@@ -677,13 +693,26 @@ export class Player {
   }
 
   // ===== スコープ装備(FPSモード時のみ有効) ==================================
-  // FPSモードでカメラの FOV を割る形で拡大鏡代わりに使う。
-  // 装備状態は永続で、拾い直すと上書き。
+  // スコープを拾ったとき: 即その倍率にはせず、Oキーで選べる倍率リストへ「追加」する。
+  // (絶対優先は廃止。あくまで選択肢が1つ増えるだけ)
+  // 同じ倍率・同じ名前のスコープが既にあれば重複追加しない。
   equipScope(scopeCfg) {
     if (!scopeCfg) return;
-    this.equippedScope = scopeCfg;
-    this.scopeZoom = scopeCfg.zoom ?? 1;
-    this.scopeSensitivityMul = scopeCfg.sensitivityMul ?? 1;
+    this.equippedScope = null; // 絶対優先は使わない
+    const zoom = scopeCfg.zoom ?? 1;
+    const already = this._builtinScopeLevels.some(
+      (lv) => lv.pickup && lv.name === scopeCfg.name && Math.abs(lv.zoom - zoom) < 0.01
+    );
+    if (!already) {
+      this._builtinScopeLevels.push({
+        zoom,
+        sensMul: scopeCfg.sensitivityMul ?? 1,
+        label: scopeCfg.name || `x${zoom}`,
+        pickup: true,
+        name: scopeCfg.name,
+      });
+    }
+    // 拾った瞬間は倍率を切り替えない(現在の選択インデックスは維持)
   }
 
   _unequipScope() {
@@ -692,23 +721,64 @@ export class Player {
     this.scopeSensitivityMul = 1;
   }
 
-  // 内蔵スコープの倍率を次段に切り替え(Oキー)
-  // 循環: 1x → 2x → 3x → 5x → 1x
-  // 拾いスコープを装備しているときは内蔵スコープの効果は無視される
+  // 試合終了時: 拾ったスコープの選択肢を全て破棄し、内蔵スコープのみ・オフ(1x)へ戻す
+  resetScopes() {
+    this._builtinScopeLevels = this._baseScopeLevels.slice();
+    this._builtinScopeIdx = 0;
+    this.equippedScope = null;
+    this.scopeZoom = 1;
+    this.scopeSensitivityMul = 1;
+  }
+
+  // ステータスパネルからスコープをドロップ(捨てる)したとき:
+  // 現在選択中が「拾ったスコープ」ならそれを選択肢から除去する。
+  // 内蔵スコープを選択中の場合は、拾ったスコープのうち最後に追加された1つを除去する。
+  // 除去できたら true を返す。
+  dropCurrentScope() {
+    const cur = this._builtinScopeLevels[this._builtinScopeIdx];
+    let removeIdx = -1;
+    if (cur && cur.pickup) {
+      removeIdx = this._builtinScopeIdx;
+    } else {
+      // 現在は内蔵を選択中 → 後ろから拾ったスコープを1つ探す
+      for (let i = this._builtinScopeLevels.length - 1; i >= 0; i--) {
+        if (this._builtinScopeLevels[i].pickup) { removeIdx = i; break; }
+      }
+    }
+    if (removeIdx < 0) return false; // 捨てられる拾いスコープが無い
+    const removed = this._builtinScopeLevels[removeIdx];
+    this._builtinScopeLevels.splice(removeIdx, 1);
+    // インデックス補正(除去位置以降にいたら1つ前へ)
+    if (this._builtinScopeIdx >= this._builtinScopeLevels.length) {
+      this._builtinScopeIdx = 0;
+    } else if (removeIdx < this._builtinScopeIdx) {
+      this._builtinScopeIdx--;
+    } else if (removeIdx === this._builtinScopeIdx) {
+      // 選択中を消したので同じ位置(次の要素)を選び直す。範囲外なら0へ。
+      if (this._builtinScopeIdx >= this._builtinScopeLevels.length) this._builtinScopeIdx = 0;
+    }
+    const lv = this._builtinScopeLevels[this._builtinScopeIdx] || this._builtinScopeLevels[0];
+    this.scopeZoom = lv.zoom;
+    this.scopeSensitivityMul = lv.sensMul;
+    return removed;
+  }
+
+  // 倍率を次段に切り替え(Oキー)
+  // 内蔵スコープ + 拾ったスコープを含む全リストを循環する
   cycleBuiltinScope() {
     const levels = this._builtinScopeLevels;
     this._builtinScopeIdx = (this._builtinScopeIdx + 1) % levels.length;
+    const lv = levels[this._builtinScopeIdx] || levels[0];
+    // 現在選択中の倍率/感度を反映しておく
+    this.scopeZoom = lv.zoom;
+    this.scopeSensitivityMul = lv.sensMul;
     return this._builtinScopeIdx;
   }
 
-  // 実際に適用すべきズーム倍率と感度倍率を返す
-  // 優先順位: 拾いスコープ > 内蔵スコープ
+  // 実際に適用すべきズーム倍率と感度倍率を返す(現在の選択インデックス基準)
   getEffectiveScope() {
-    if (this.equippedScope) {
-      return { zoom: this.scopeZoom || 1, sensMul: this.scopeSensitivityMul || 1, source: 'pickup' };
-    }
     const lv = this._builtinScopeLevels[this._builtinScopeIdx] || this._builtinScopeLevels[0];
-    return { zoom: lv.zoom, sensMul: lv.sensMul, source: 'builtin' };
+    return { zoom: lv.zoom, sensMul: lv.sensMul, label: lv.label, source: lv.pickup ? 'pickup' : 'builtin' };
   }
 
   // ===== 乗り物搭乗 =========================================================
@@ -748,6 +818,8 @@ export class Player {
     this._unequipWeapon();
     this._unequipShield();
     this._unmountVehicle();
+    // 拾ったスコープ選択肢を破棄して内蔵スコープのみ(オフ)に戻す
+    this.resetScopes();
     // バフ系倍率/タイマー全リセット
     this.bulletDmgMul = 1;
     this.weaponBoostTimer = 0;
@@ -1758,7 +1830,35 @@ export class Player {
   getAttackData() {
     if (!this.currentAttack) return null;
     const set = ATTACK_SETS[this.attackSetId] || ATTACKS_CAT;
-    return set[this.currentAttack] || null;
+    const base = set[this.currentAttack] || null;
+    if (!base) return null;
+    // 剣を装備中は X/C 剣技を武器専用のモーション/エフェクトに変える
+    // （Z キーは別経路の弾なのでここでは一切影響しない）
+    const w = this.equippedWeapon;
+    if (w && w.kind === 'sword' && w.skill) {
+      const sk = w.skill;
+      // 共有 ATTACK_SETS を壊さないようクローンして倍率を適用
+      const anim = base.anim ? {
+        ...base.anim,
+        sw: Array.isArray(base.anim.sw)
+          ? base.anim.sw.map(v => v * (sk.swingScale ?? 1))
+          : base.anim.sw,
+        armSwing: (base.anim.armSwing ?? 0) * (sk.armMul ?? 1),
+      } : base.anim;
+      return {
+        ...base,
+        anim,
+        duration: base.duration * (sk.speedMul ?? 1),
+        hitStart: base.hitStart * (sk.speedMul ?? 1),
+        hitEnd: base.hitEnd * (sk.speedMul ?? 1),
+        arc: (base.arc ?? 0) * (sk.arcMul ?? 1),
+        range: (base.range ?? 0) * (sk.rangeMul ?? 1),
+        kb: (base.kb ?? 0) * (sk.kbMul ?? 1),
+        hitFx: sk.fx ?? base.hitFx,
+        hitColor: sk.hitColor ?? base.hitColor,
+      };
+    }
+    return base;
   }
 
   // 現在キャラのラベル一覧（UI から参照）
@@ -1999,6 +2099,19 @@ export class Player {
     }
     this._dashWasDown = dashDown;
 
+    // 継続スプリント：W ダブルクリックで発動、W を離すと解除
+    this._sprintTime += dt;
+    const wDown = input.isDown('KeyW');
+    if (wDown && !this._wWasDown) {
+      // W の押し始め：前回の押下から W_DOUBLE_WINDOW 以内ならスプリント ON
+      if (this._sprintTime - this._wLastPressT <= W_DOUBLE_WINDOW) {
+        this._sprintActive = true;
+      }
+      this._wLastPressT = this._sprintTime;
+    }
+    if (!wDown) this._sprintActive = false; // W を離したら継続ダッシュ終了
+    this._wWasDown = wDown;
+
     // 速度更新
     if (this.dashTimer >= 0) {
       // ダッシュ中：固定方向に強加速＋軽減衰
@@ -2012,6 +2125,10 @@ export class Player {
       // 乗り物ブースト：移動上限を moveSpeedMul 倍に引き上げる
       // キャラ固有の baseMoveSpeed (6 が基準) で更にスケール
       let speedMul = this.moveSpeedMul;
+      // 継続スプリント（W ダブルクリック中）は速く、通常の徒歩は少しゆっくりに。
+      // ※乗り物(_veh)には掛けないのでバランスは従来どおり。
+      if (this._sprintActive) speedMul *= SPRINT_MUL;
+      else if (!_veh) speedMul *= WALK_MUL;
       // ホバーバイクは移動継続で更に加速し、最終的に総速度 +240%(=3.4x) に到達する。
       // 停止(水平速度 ~0)で加速がリセットされ +30%(=1.3x) に戻る。
       if (_veh && _veh.id === 'veh_hoverBike') {
@@ -2187,8 +2304,9 @@ export class Player {
       this.object.position.y = minY;
       if (this.velocity.y < 0) this.velocity.y = 0;
     }
-    if (this.object.position.y > groundY + 65) {
-      this.object.position.y = groundY + 65;
+    // 飛べる最大高度を従来の 3 倍(65→195)に拡張
+    if (this.object.position.y > groundY + 195) {
+      this.object.position.y = groundY + 195;
       if (this.velocity.y > 0) this.velocity.y = 0;
     }
 
@@ -2411,19 +2529,21 @@ export class Player {
     this.object.rotation.y = cur + diff * ROT_LERP;
   }
 
-  // swordHolder を _armR の子に付け替える。腕が無ければ object 直下にフォールバック。
-  // armR が見つかった場合：腕の下端付近（手の位置）にぶら下げる
+  // swordHolder を _armL（左腕）の子に付け替える。左腕が無ければ右腕、
+  // それも無ければ object 直下にフォールバック。
+  // 腕が見つかった場合：腕の下端付近（手の位置）にぶら下げる
   // 見つからない場合：従来通り胴体中央のやや上に置く
   _attachSwordToArm() {
     // 既存の parent から外す
     if (this.swordHolder.parent) {
       this.swordHolder.parent.remove(this.swordHolder);
     }
-    if (this._armR) {
+    const hand = this._armL || this._armR;
+    if (hand) {
       // 腕のローカル空間で手の位置（腕原点の少し下）にセット
       this.swordHolder.position.set(0, -0.5, 0);
       this.swordHolder.rotation.set(0, 0, 0);
-      this._armR.add(this.swordHolder);
+      hand.add(this.swordHolder);
     } else {
       this.swordHolder.position.set(0, 0.5, 0);
       this.swordHolder.rotation.set(0, 0, 0);

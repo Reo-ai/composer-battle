@@ -18,6 +18,7 @@ import { Enemy } from './enemy.js';
 import { HUD } from './ui.js';
 import { buildStage, STAGE_BOUNDS, getTerrainHeightAt } from './stage.js';
 import { buildCoverLayout } from './cover.js';
+import { placeBuildings } from './buildings.js';
 import { EffectManager } from './effects.js';
 import { AudioBus } from './audio.js';
 import { ItemManager, SHIELD_CATALOG, HEAL_CATALOG, SCOPE_CATALOG } from './items.js';
@@ -73,15 +74,12 @@ const scopeBadgeText = scopeBadge.querySelector('#scope-badge-text');
 function updateScopeBadge() {
   if (!player) { scopeBadge.style.display = 'none'; return; }
   const isFps = (typeof gameMode !== 'undefined' && gameMode === 'fps');
-  // 拾ったスコープ優先。それがなければ内蔵スコープ状態を表示(1x はバッジ非表示)
-  if (player.equippedScope) {
-    const sc = player.equippedScope;
-    const z = player.scopeZoom || 1;
-    scopeBadgeText.textContent = `${sc.name || sc.id}  x${z.toFixed(1)}${isFps ? '' : ' (F でFPS)'}`;
-  } else if (player.getEffectiveScope) {
+  // 現在選択中の倍率(内蔵 + 拾ったスコープを含む統一リスト)を表示。1x はバッジ非表示
+  if (player.getEffectiveScope) {
     const eff = player.getEffectiveScope();
     if (eff.zoom <= 1.001) { scopeBadge.style.display = 'none'; return; }
-    scopeBadgeText.textContent = `内蔵スコープ  x${eff.zoom.toFixed(0)}${isFps ? '' : ' (F でFPS)'}`;
+    const nm = eff.label || (eff.source === 'pickup' ? 'スコープ' : '内蔵スコープ');
+    scopeBadgeText.textContent = `${nm}  x${eff.zoom.toFixed(eff.zoom % 1 ? 1 : 0)}${isFps ? '' : ' (F でFPS)'}`;
   } else {
     scopeBadge.style.display = 'none';
     return;
@@ -334,14 +332,10 @@ camera.position.set(0, 5, 10);
 // - それ以外: BASE_FOV を維持
 let _lastScopeZoom = 1;
 function updateScopeFov(silent = false) {
-  // 拾いスコープを優先し、なければ内蔵スコープの有効倍率を使う
+  // 現在選択中の倍率(内蔵 + 拾ったスコープを含む統一リスト)を使う
   let zoom = 1;
-  if (gameMode === 'fps' && player) {
-    if (player.equippedScope) {
-      zoom = player.scopeZoom || 1;
-    } else if (player.getEffectiveScope) {
-      zoom = player.getEffectiveScope().zoom || 1;
-    }
+  if (gameMode === 'fps' && player && player.getEffectiveScope) {
+    zoom = player.getEffectiveScope().zoom || 1;
   }
   const targetFov = BASE_FOV / zoom;
   if (Math.abs(camera.fov - targetFov) > 0.01) {
@@ -423,6 +417,9 @@ const stage = buildStage(scene);
 const covers = buildCoverLayout(scene);
 // 他モジュールから参照できるようにグローバルに置いておく（暫定）
 if (typeof window !== 'undefined') window.__covers = covers;
+
+// ---- 第二段階: 建物 GLB を区画へ非同期配置（city のみ・コライダー自動登録） ----
+placeBuildings(scene, covers);
 
 // ---- 高台の目印になる発光ビーコン旗 ----
 // カバーの platform 位置に旗ポールと発光ヘッドを立てる
@@ -1141,6 +1138,8 @@ function animate() {
     if (input.isDown('KeyZ')) {
       // ---- FPS モード分岐: カメラ位置から真直ぐ発射 + ヒットスキャンでヘッドショット判定 ----
       if (gameMode === 'fps') {
+        const fw = player.equippedWeapon; // FPSでも装備武器の効果を反映
+        // 剣でも Z は必ず弾（飛び道具）。剣は projectileStyle を持たないので音符弾になる。
         if (!fpsIsReloading && fpsAmmo > 0 && fpsFireCooldown <= 0) {
           // カメラの実際の向きを使う（yaw/pitch と一致するが行列由来なので安全）
           const dir = new THREE.Vector3();
@@ -1194,17 +1193,35 @@ function animate() {
           }
 
           // 弾ダメージを事前決定 → 既存の弾/衝突パイプラインに委ねる
+          // (威力倍率 bulletDmgMul は resolveProjectiles 側で自動乗算されるため、
+          //  装備武器の dmgMul はここでは掛けない。スタイル/色/散弾/誘導を反映する)
           const dmg = FPS_BULLET_DMG * (bestHead ? FPS_HEADSHOT_MUL : 1);
-          const color = player.bulletColor;
-          projectiles.spawn(origin, dir, color, player.ownerId, {
-            style: 'note',
-            speed: FPS_BULLET_SPEED,
-            radius: FPS_BULLET_RADIUS,
-            dmg,
-            life: 1.6,
-            inheritVelocity: player.velocity.clone(),
-            headshot: bestHead,
-          });
+          const color = fw?.color ?? player.bulletColor;
+          const style = fw?.projectileStyle || 'note';
+          const speed = fw?.projectileSpeed ?? FPS_BULLET_SPEED;
+          const radius = fw?.projectileRadius ?? FPS_BULLET_RADIUS;
+          const homing = fw?.kind === 'wand' ? (fw.projectileHoming ?? 0.3) : 0;
+          const pellets = (fw?.kind === 'gun' && fw.spread > 0) ? fw.spread : 1;
+          for (let pi = 0; pi < pellets; pi++) {
+            const pdir = dir.clone();
+            if (pellets > 1) {
+              // ショットガン等の散弾拡散
+              pdir.x += (Math.random() - 0.5) * 0.12;
+              pdir.y += (Math.random() - 0.5) * 0.08;
+              pdir.z += (Math.random() - 0.5) * 0.12;
+              pdir.normalize();
+            }
+            projectiles.spawn(origin, pdir, color, player.ownerId, {
+              style,
+              speed,
+              radius,
+              homing,
+              dmg,
+              life: 1.6,
+              inheritVelocity: player.velocity.clone(),
+              headshot: bestHead,
+            });
+          }
 
           // ヘッドショット時は火花を少し豪華に（着弾時のみでなく事前ヒントとしても）
           if (bestEnemy && bestHead) {
@@ -1213,7 +1230,8 @@ function animate() {
           }
 
           fpsAmmo -= 1;
-          fpsFireCooldown = FPS_FIRE_INTERVAL;
+          // 装備武器の連射速度(fireMul)を反映: 高いほど発射間隔が短い
+          fpsFireCooldown = FPS_FIRE_INTERVAL / Math.max(0.2, fw?.fireMul ?? 1);
           // ---- リコイル: ピッチ跳ね上げ + 拡散増加 ----
           fpsRecoilPitch += FPS_RECOIL_KICK;
           fpsSpread = Math.min(FPS_SPREAD_MAX, fpsSpread + FPS_SPREAD_ADD);
@@ -1227,11 +1245,8 @@ function animate() {
       } else {
       const w = player.equippedWeapon;
       const kind = w?.kind;
-      if (kind === 'sword') {
-        // 剣装備中は Z で剣を振る（X と同じ軽攻撃を起動）
-        const swung = player.tryStartAttack('light', input);
-        if (swung) audio.swordSwing?.(w) ?? audio.sword();
-      } else if (player.canFire()) {
+      // Z は全武器で必ず弾（飛び道具）。剣も例外なく弾を撃つ（近接技は X / C 専用）。
+      if (player.canFire()) {
         const baseDir = player.getAimDirection();
         const muzzle = player.getMuzzlePosition();
         if (kind === 'gun') {
@@ -1471,12 +1486,13 @@ function animate() {
         const nm = ev.name || '盾';
         hud.showPickupMessage?.(`${nm} GET! ${ev.duration}秒`);
       } else if (ev.kind === 'scope') {
-        // スコープピックアップ：紫系の火花＋専用SE、FPS時のみ即時反映
+        // スコープピックアップ：紫系の火花＋専用SE
+        // 即適用はせず、Oキーの倍率切替に選択肢として追加される
         effects.spawnHitBurst?.(player.object.position.clone(), 0xff88ff);
         const zoomN = ev.item?.cfg?.zoom ?? 1;
         audio.scopePickup?.(zoomN);
         const nm = ev.name || 'スコープ';
-        hud.showPickupMessage?.(`${nm} GET! x${zoomN.toFixed(1)} (FPS時)`);
+        hud.showPickupMessage?.(`${nm} GET! Oキーで x${zoomN.toFixed(1)} を選択可`);
         updateScopeFov(true); // ピックアップSEを鳴らしたのでズームSEは無音
       }
     }

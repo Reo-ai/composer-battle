@@ -326,6 +326,126 @@ export class HUD {
     this._buildInfoPanel();
     // ===== ミニマップ（右上） =====
     this._buildMinimap();
+    // ===== ステータスパネルのドラッグ&ドロップ(装備を掴んでパネル外で捨てる) =====
+    this._setupStatusDragDrop();
+  }
+
+  // ステータスパネルの装備アイテム(武器/盾/乗り物/スコープ)を
+  // アイテム名クリック(タッチ)で掴み、パネル外で放すとドロップ(捨てる)できるようにする。
+  _setupStatusDragDrop() {
+    // 掴める行のマッピング: data-row → { valEl, drop(player) }
+    const rows = [
+      {
+        key: 'weapon', valEl: this._statusWeapon,
+        has: (p) => !!p.equippedWeapon,
+        drop: (p) => { const n = p.equippedWeapon?.name || '武器'; p._unequipWeapon?.(); return n; },
+      },
+      {
+        key: 'shield', valEl: this._statusShield,
+        has: (p) => !!p.equippedShield,
+        drop: (p) => { const n = p.equippedShield?.name || '盾'; p._unequipShield?.(); return n; },
+      },
+      {
+        key: 'vehicle', valEl: this._statusVehicle,
+        has: (p) => !!p.mountedVehicle,
+        drop: (p) => { const n = p.mountedVehicle?.name || '乗り物'; p._unmountVehicle?.(); return n; },
+      },
+      {
+        key: 'scope', valEl: this._statusScope,
+        has: (p) => {
+          const eff = p.getEffectiveScope ? p.getEffectiveScope() : null;
+          // 拾ったスコープが1つでもあれば捨てられる
+          return !!(p._builtinScopeLevels && p._builtinScopeLevels.some((lv) => lv.pickup));
+        },
+        drop: (p) => {
+          const removed = p.dropCurrentScope?.();
+          return removed && removed.label ? removed.label : 'スコープ';
+        },
+      },
+    ];
+
+    let drag = null; // { row, ghost, player }
+
+    // 掴んでいる間、カーソル/指を追う半透明ゴースト要素
+    const makeGhost = (text) => {
+      const g = document.createElement('div');
+      g.textContent = '🖐 ' + text;
+      Object.assign(g.style, {
+        position: 'fixed', left: '0', top: '0', zIndex: '9999',
+        padding: '6px 12px', borderRadius: '10px',
+        background: 'rgba(255,80,80,0.85)', color: '#fff',
+        fontFamily: 'sans-serif', fontSize: '14px', fontWeight: 'bold',
+        pointerEvents: 'none', whiteSpace: 'nowrap',
+        boxShadow: '0 4px 14px rgba(0,0,0,0.5)',
+        transform: 'translate(-50%, -140%)',
+      });
+      document.body.appendChild(g);
+      return g;
+    };
+
+    const moveGhost = (x, y) => {
+      if (!drag) return;
+      drag.ghost.style.left = x + 'px';
+      drag.ghost.style.top = y + 'px';
+      // パネル外なら「捨てる」表示に、内側なら「戻す」表示に切替
+      const r = this.statusPanel.getBoundingClientRect();
+      const outside = x < r.left || x > r.right || y < r.top || y > r.bottom;
+      drag.ghost.style.background = outside
+        ? 'rgba(255,60,60,0.9)' : 'rgba(120,120,120,0.85)';
+      drag.ghost.textContent = (outside ? '🗑 捨てる: ' : '🖐 ') + drag.row._label;
+    };
+
+    const endDrag = (x, y) => {
+      if (!drag) return;
+      const d = drag; drag = null;
+      d.ghost.remove();
+      const r = this.statusPanel.getBoundingClientRect();
+      const outside = x < r.left || x > r.right || y < r.top || y > r.bottom;
+      if (outside && d.player && d.row.has(d.player)) {
+        const name = d.row.drop(d.player);
+        // ドロップ通知(HUD メッセージが使えれば使う)
+        if (this.showPickupMessage) this.showPickupMessage(`${name} を捨てました`);
+        // パネルを即時更新
+        this._updateStatusPanel(d.player);
+      }
+    };
+
+    rows.forEach((row) => {
+      const el = row.valEl;
+      if (!el) return;
+      el.style.cursor = 'grab';
+      el.style.touchAction = 'none';
+      el.style.userSelect = 'none';
+      const onDown = (e) => {
+        const player = this._lastPlayer;
+        if (!player || !row.has(player)) return; // 装備が無い行は掴めない
+        e.preventDefault();
+        e.stopPropagation();
+        row._label = el.textContent || row.key;
+        drag = { row, player, ghost: makeGhost(row._label) };
+        const p = ('touches' in e && e.touches[0]) ? e.touches[0] : e;
+        moveGhost(p.clientX, p.clientY);
+      };
+      el.addEventListener('pointerdown', onDown);
+      el.addEventListener('touchstart', onDown, { passive: false });
+    });
+
+    // 移動・解放はウィンドウ全体で拾う(パネル外でも追従・ドロップ判定するため)
+    const onMove = (e) => {
+      if (!drag) return;
+      const p = ('touches' in e && e.touches[0]) ? e.touches[0] : e;
+      moveGhost(p.clientX, p.clientY);
+      e.preventDefault();
+    };
+    const onUp = (e) => {
+      if (!drag) return;
+      const p = ('changedTouches' in e && e.changedTouches[0]) ? e.changedTouches[0] : e;
+      endDrag(p.clientX, p.clientY);
+    };
+    window.addEventListener('pointermove', onMove, { passive: false });
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('touchmove', onMove, { passive: false });
+    window.addEventListener('touchend', onUp);
   }
 
   // 右上のミニマップ（ステージ全体の俯瞰 + プレイヤー/敵/アイテム位置）
@@ -645,8 +765,9 @@ export class HUD {
         statsText: [
           'Oキーで倍率切替: 1x → 2x → 3x → 5x → 1x',
           'FPSモード（Fキー）中のみズーム有効',
-          '拾ったスコープ装備中は拾ったものが優先',
+          '拾ったスコープはOキーの選択肢に「追加」される',
           '倍率が上がるほどマウス感度が自動で下がる',
+          '試合終了で拾ったスコープはリセット',
           'スマホ: 右下パネルの O ボタンでも切替可',
         ],
       },
@@ -848,6 +969,7 @@ export class HUD {
       <div style="margin-bottom:4px;"><b style="color:#9ad7ff;">ジャンプ</b> Space（FPSモード時 / 昇った分だけ着地で沈む）</div>
       <div style="margin-bottom:4px;"><b style="color:#9ad7ff;">よじ登り</b> 壁の縁に近づいてSpaceで角を掴んで自動登攀</div>
       <div style="margin-bottom:4px;"><b style="color:#9ad7ff;">ダッシュ</b> Shift（方向入力で突進）</div>
+      <div style="margin-bottom:4px;"><b style="color:#9ad7ff;">継続スプリント</b> W ダブルクリック（押している間ずっと高速移動）</div>
       <div style="margin-bottom:4px;"><b style="color:#9ad7ff;">射撃</b> Z（音符弾） / <b style="color:#c8a0ff;">特殊技</b> B（飛び道具）</div>
       <div style="margin-bottom:4px;"><b style="color:#9ad7ff;">スコープ倍率</b> O（内蔵スコープ切替 1x → 2x → 3x → 5x → 1x / FPSモードで有効）</div>
       <div style="margin-bottom:4px;"><b style="color:#9ad7ff;">FPS切替</b> F（一人称/三人称） / <b style="color:#9ad7ff;">リロード</b> R（FPS中）</div>
@@ -903,6 +1025,8 @@ export class HUD {
 
   _updateStatusPanel(player) {
     if (!this._statusWeapon) return;
+    // ドラッグ&ドロップ用に最新のプレイヤー参照を保持
+    this._lastPlayer = player;
     // 装備武器（時間は撤廃したので永続表示）
     const w = player.equippedWeapon;
     this._statusWeapon.textContent = w ? `${w.name || w.id}（∞）` : 'なし';
@@ -916,13 +1040,13 @@ export class HUD {
     const mt = player.mountTimer || 0;
     this._statusVehicle.textContent = v ? `${v.name || v.id}（${mt.toFixed(1)}s）` : 'なし';
     this._statusVehicle.style.color = v ? '#4be0ff' : '#888';
-    // 装備スコープ（FPSモードで効果、常時倍率表示）
+    // 装備スコープ（FPSモードで効果、現在選択中の倍率を表示）
     if (this._statusScopeRow) {
-      const sc = player.equippedScope;
-      if (sc) {
-        const z = player.scopeZoom || 1;
+      const eff = player.getEffectiveScope ? player.getEffectiveScope() : null;
+      if (eff && eff.zoom > 1.001) {
+        const nm = eff.label || (eff.source === 'pickup' ? 'スコープ' : '内蔵スコープ');
         this._statusScopeRow.style.display = 'block';
-        this._statusScope.textContent = `${sc.name || sc.id}  x${z.toFixed(1)}（∞）`;
+        this._statusScope.textContent = `${nm}  x${eff.zoom.toFixed(eff.zoom % 1 ? 1 : 0)}（∞）`;
         this._statusScope.style.color = '#ff88ff';
       } else {
         this._statusScopeRow.style.display = 'none';

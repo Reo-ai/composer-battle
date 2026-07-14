@@ -185,7 +185,124 @@ export class EffectManager {
       case 'note':    return this.spawnNoteHit(position, color);
       case 'staff':   return this.spawnStaffRing(position, color);
       case 'feather': return this.spawnFeatherBurst(position, color);
+      // 剣の属性別ヒットエフェクト（武器専用）
+      case 'slash':   return this.spawnSwordElementHit(position, color, 'slash');
+      case 'flame':   return this.spawnSwordElementHit(position, color, 'flame');
+      case 'frost':   return this.spawnSwordElementHit(position, color, 'frost');
+      case 'thunder': return this.spawnSwordElementHit(position, color, 'thunder');
+      case 'holy':    return this.spawnSwordElementHit(position, color, 'holy');
+      case 'demon':   return this.spawnSwordElementHit(position, color, 'demon');
+      case 'rainbow': return this.spawnSwordElementHit(position, color, 'rainbow');
       default:        return this.spawnSwordHit(position, color);
+    }
+  }
+
+  // 剣の属性別ヒットエフェクト
+  // 属性ごとにフラッシュリング・破片の色/数/挙動を変えて、装備武器で見た目が明確に変わるようにする
+  spawnSwordElementHit(position, color, element) {
+    switch (element) {
+      case 'flame': {
+        // 炎：オレンジ〜赤の火花が上方向へ立ち上る＋二重リング
+        this._spawnFlashRing(position, 0xff8a2a, 0.6, 2.8, 0.2);
+        this._spawnFlashRing(position, 0xff3010, 0.4, 1.8, 0.14);
+        for (let i = 0; i < 16; i++) {
+          const geo = new THREE.SphereGeometry(0.09 + Math.random() * 0.07, 6, 6);
+          const mat = new THREE.MeshBasicMaterial({ color: i % 2 ? 0xffb040 : 0xff4020, transparent: true, opacity: 1, blending: THREE.AdditiveBlending });
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.position.copy(position);
+          const dir = new THREE.Vector3((Math.random() - 0.5) * 1.2, Math.random() * 1.2 + 0.6, (Math.random() - 0.5) * 1.2).normalize();
+          this.scene.add(mesh);
+          this.particles.push({ mesh, vel: dir.multiplyScalar(5 + Math.random() * 4), life: 0.45 + Math.random() * 0.25, age: 0, gravity: 3 });
+        }
+        break;
+      }
+      case 'frost': {
+        // 氷：水色の結晶が飛び散り、ゆっくり漂う＋淡いリング
+        this._spawnFlashRing(position, 0x88e0ff, 0.7, 3.2, 0.28);
+        for (let i = 0; i < 14; i++) {
+          const s = 0.1 + Math.random() * 0.08;
+          const geo = new THREE.OctahedronGeometry(s, 0);
+          const mat = new THREE.MeshBasicMaterial({ color: 0xbdf0ff, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending });
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.position.copy(position);
+          const dir = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.6 + 0.1, Math.random() - 0.5).normalize();
+          this.scene.add(mesh);
+          this.particles.push({ mesh, vel: dir.multiplyScalar(3.5 + Math.random() * 2.5), spin: new THREE.Vector3(4, 4, 4), life: 0.6 + Math.random() * 0.3, age: 0, gravity: -1 });
+        }
+        break;
+      }
+      case 'thunder': {
+        // 雷：黄色い強い閃光＋高速で四散する火花
+        this._spawnFlashRing(position, 0xffffff, 0.4, 2.0, 0.1);
+        this._spawnFlashRing(position, 0xfff066, 0.8, 3.6, 0.16);
+        for (let i = 0; i < 20; i++) {
+          const geo = new THREE.BoxGeometry(0.06, 0.06, 0.3 + Math.random() * 0.3);
+          const mat = new THREE.MeshBasicMaterial({ color: 0xffffa0, transparent: true, opacity: 1, blending: THREE.AdditiveBlending });
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.position.copy(position);
+          const dir = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
+          mesh.lookAt(position.clone().add(dir));
+          this.scene.add(mesh);
+          this.particles.push({ mesh, vel: dir.multiplyScalar(9 + Math.random() * 6), life: 0.25 + Math.random() * 0.15, age: 0, gravity: 0 });
+        }
+        break;
+      }
+      case 'holy': {
+        // 聖：金〜白の大きな光輪＋柔らかい光の粒
+        this._spawnFlashRing(position, 0xffffff, 0.5, 2.4, 0.2);
+        this._spawnFlashRing(position, 0xfff0b0, 1.0, 4.6, 0.4);
+        for (let i = 0; i < 14; i++) {
+          const geo = new THREE.SphereGeometry(0.08 + Math.random() * 0.05, 8, 8);
+          const mat = new THREE.MeshBasicMaterial({ color: 0xfff8d0, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending });
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.position.copy(position);
+          const dir = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.9 + 0.3, Math.random() - 0.5).normalize();
+          this.scene.add(mesh);
+          this.particles.push({ mesh, vel: dir.multiplyScalar(3 + Math.random() * 3), life: 0.6 + Math.random() * 0.3, age: 0, gravity: -1.5 });
+        }
+        break;
+      }
+      case 'demon': {
+        // 闇：赤黒い渦＋暗い破片が渦を巻いて散る
+        this._spawnFlashRing(position, 0xff0044, 0.5, 2.2, 0.18);
+        this._spawnFlashRing(position, 0x660022, 1.0, 3.8, 0.32);
+        for (let i = 0; i < 18; i++) {
+          const s = 0.1 + Math.random() * 0.1;
+          const geo = new THREE.TetrahedronGeometry(s, 0);
+          const mat = new THREE.MeshBasicMaterial({ color: i % 3 ? 0xaa0033 : 0x330011, transparent: true, opacity: 0.95 });
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.position.copy(position);
+          const ang = Math.random() * Math.PI * 2;
+          const dir = new THREE.Vector3(Math.cos(ang), Math.random() * 0.5, Math.sin(ang)).normalize();
+          this.scene.add(mesh);
+          this.particles.push({ mesh, vel: dir.multiplyScalar(4 + Math.random() * 4), spin: new THREE.Vector3(6, 6, 6), life: 0.5 + Math.random() * 0.3, age: 0, gravity: 1 });
+        }
+        break;
+      }
+      case 'rainbow': {
+        // 虹：7色の破片が全方向に爆ぜる＋カラフルな二重リング
+        const palette = [0xff4040, 0xff9040, 0xffe040, 0x40e060, 0x40a0ff, 0x6040ff, 0xd040ff];
+        this._spawnFlashRing(position, 0xffffff, 0.5, 2.6, 0.22);
+        this._spawnFlashRing(position, palette[Math.floor(Math.random() * 7)], 0.9, 3.8, 0.3);
+        for (let i = 0; i < 21; i++) {
+          const geo = new THREE.SphereGeometry(0.08 + Math.random() * 0.06, 6, 6);
+          const mat = new THREE.MeshBasicMaterial({ color: palette[i % 7], transparent: true, opacity: 1, blending: THREE.AdditiveBlending });
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.position.copy(position);
+          const dir = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.2, Math.random() - 0.5).normalize();
+          this.scene.add(mesh);
+          this.particles.push({ mesh, vel: dir.multiplyScalar(5 + Math.random() * 5), life: 0.5 + Math.random() * 0.3, age: 0, gravity: -1 });
+        }
+        break;
+      }
+      case 'slash':
+      default: {
+        // 通常剣：鋭い銀の二重リング＋少量の火花
+        this._spawnFlashRing(position, 0xffffff, 0.4, 1.8, 0.12);
+        this._spawnFlashRing(position, color, 0.7, 2.8, 0.2);
+        this.spawnHitBurst(position, color, 8);
+        break;
+      }
     }
   }
 

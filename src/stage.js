@@ -47,9 +47,12 @@ function getPalette() {
   return PALETTES[getSelectedStage()] || PALETTES.city;
 }
 
-// ステージを大幅拡張（260→900→1800→2700、FPS化に合わせ地上面積を 1.5 倍に）
-const TERRAIN_SIZE = 2700;
-const TERRAIN_SEGS = 1350;  // 密度は 2m/segment を維持（1800→2700 に比例）
+// ステージを大幅拡張（260→900→1800→2700→さらに面積2倍へ）
+// STAGE_SCALE で一辺を √2 倍し、地上面積を約2倍に拡張する。
+// この係数は装飾物の散布半径にも掛け、地形と装飾を一緒に拡大する。
+const STAGE_SCALE = 1.414;
+const TERRAIN_SIZE = Math.round(2700 * STAGE_SCALE); // ≈3818m四方（面積2倍）
+const TERRAIN_SEGS = Math.round(1350 * STAGE_SCALE); // 密度 2m/segment を維持
 const ARENA_RADIUS = 14;
 const ARENA_CENTER = new THREE.Vector2(0, 0);
 // ステージ境界（外周のアイテム散布などで使う）
@@ -133,7 +136,7 @@ export function buildStage(scene) {
   const SPIRE_COUNT = 56;
   for (let i = 0; i < SPIRE_COUNT; i++) {
     const a = (i / SPIRE_COUNT) * Math.PI * 2 + (Math.random() - 0.5) * 0.35;
-    const r = 60 + Math.random() * 540; // 60〜600 (1.5倍拡張)
+    const r = (60 + Math.random() * 540) * STAGE_SCALE; // 面積2倍に合わせ外周へ拡張
     const x = Math.cos(a) * r;
     const z = Math.sin(a) * r;
     if (insideArena(x, z, 3)) continue;
@@ -143,7 +146,7 @@ export function buildStage(scene) {
   // ---- 枯れ木（広範囲に散布） ----
   const swayables = [];
   for (let i = 0; i < 90; i++) {
-    const p = randomPositionAvoidingArena(30, 630);
+    const p = randomPositionAvoidingArena(30, 630 * STAGE_SCALE);
     const tree = createDeadTree(p.x, p.z);
     scene.add(tree);
     swayables.push({ obj: tree, phase: Math.random() * Math.PI * 2, amp: 0.025 });
@@ -151,13 +154,13 @@ export function buildStage(scene) {
 
   // ---- 岩塊（地面に多数散らす） ----
   for (let i = 0; i < 240; i++) {
-    const p = randomPositionAvoidingArena(27, 645);
+    const p = randomPositionAvoidingArena(27, 645 * STAGE_SCALE);
     scene.add(createBoulder(p.x, p.z));
   }
 
   // ---- 乾いた草・茂み ----
   for (let i = 0; i < 420; i++) {
-    const p = randomPositionAvoidingArena(27, 645);
+    const p = randomPositionAvoidingArena(27, 645 * STAGE_SCALE);
     const brush = createDryBrush(p.x, p.z);
     scene.add(brush);
     swayables.push({ obj: brush, phase: Math.random() * Math.PI * 2, amp: 0.05 });
@@ -168,7 +171,7 @@ export function buildStage(scene) {
   const CLOUD_COUNT = 70;
   for (let i = 0; i < CLOUD_COUNT; i++) {
     const a = (i / CLOUD_COUNT) * Math.PI * 2 + Math.random() * 0.45;
-    const r = 120 + Math.random() * 420; // 120〜540 (1.5倍拡張)
+    const r = (120 + Math.random() * 420) * STAGE_SCALE; // 面積2倍に合わせ広域化
     const y = 45 + Math.random() * 55;   // 45〜100
     const cloud = createCloud();
     cloud.position.set(Math.cos(a) * r, y, Math.sin(a) * r);
@@ -186,7 +189,8 @@ export function buildStage(scene) {
     [110, 50, 250, 4.8],[-180, 24, 220, 4.2],[260, 30, -200, 5.6],
   ];
   for (const [fx, fy, fz, fs] of FLOATING_ROCKS) {
-    scene.add(createFloatingRock(fx, fy, fz, fs));
+    // X/Z を STAGE_SCALE で広げる（高さ fy・サイズ fs は維持）
+    scene.add(createFloatingRock(fx * STAGE_SCALE, fy, fz * STAGE_SCALE, fs));
   }
 
   // ---- 砂塵（大気の粒） ----
@@ -201,7 +205,7 @@ export function buildStage(scene) {
     birds.push({
       obj: bird,
       angle: Math.random() * Math.PI * 2,
-      radius: 90 + Math.random() * 450, // 90〜540 (1.5倍拡張)
+      radius: (90 + Math.random() * 450) * STAGE_SCALE, // 面積2倍に合わせ旋回半径拡大
       height: 28 + Math.random() * 50,
       speed: 0.05 + Math.random() * 0.08,
       flapPhase: Math.random() * Math.PI * 2,

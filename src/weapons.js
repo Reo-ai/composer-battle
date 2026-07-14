@@ -800,27 +800,46 @@ function wand_chaos() {
 // 戦闘パラメータ: dmgMul, fireMul, duration, color, projectileStyle, projectileOpts
 // =====================================================
 
+// 剣ごとの X/C 剣技専用スキル設定
+//   fx        : ヒットエフェクト種別（effects.spawnHitFx のケース名）
+//   hitColor  : ヒットエフェクト＆斬撃残像の基調カラー
+//   speedMul  : 攻撃モーションの持続倍率（<1 で速い/鋭い、>1 で遅い/重い）
+//   swingScale: 剣の振り幅（anim.sw 回転）倍率
+//   armMul    : 腕振り（armSwing）倍率
+//   arcMul    : 攻撃判定の扇角（arc）倍率
+//   rangeMul  : 攻撃判定の射程（range）倍率
+//   kbMul     : ノックバック（kb）倍率
 export const SWORDS = [
   { id: 'sword_ironLong',   name: 'アイアンロング',    factory: sword_ironLong,   dmgMul: 1.6, fireMul: 1.0, duration: 16, color: 0xdcdcdc,
-    statsText: ['攻撃力 +60%', '連射速度 ±0%', '持続 ∞（永続）'] },
+    statsText: ['攻撃力 +60%', '連射速度 ±0%', '持続 ∞（永続）'],
+    skill: { fx: 'slash', hitColor: 0xdcdcdc, speedMul: 1.0, swingScale: 1.0, armMul: 1.0, arcMul: 1.0, rangeMul: 1.0, kbMul: 1.0 } },
   { id: 'sword_katana',     name: '紅蓮の刀',          factory: sword_katana,     dmgMul: 2.0, fireMul: 1.2, duration: 14, color: 0xe8f0ff,
-    statsText: ['攻撃力 +100%', '連射速度 +20%', '持続 ∞（永続）'] },
+    statsText: ['攻撃力 +100%', '連射速度 +20%', '持続 ∞（永続）'],
+    skill: { fx: 'flame', hitColor: 0xff5a3c, speedMul: 0.78, swingScale: 1.18, armMul: 1.25, arcMul: 0.8, rangeMul: 1.15, kbMul: 1.0 } },
   { id: 'sword_broadsword', name: 'ブロードソード',    factory: sword_broadsword, dmgMul: 2.4, fireMul: 0.7, duration: 16, color: 0xb0c4de,
-    statsText: ['攻撃力 +140%', '連射速度 -30%', '持続 ∞（永続）'] },
+    statsText: ['攻撃力 +140%', '連射速度 -30%', '持続 ∞（永続）'],
+    skill: { fx: 'slash', hitColor: 0xb0c4de, speedMul: 1.4, swingScale: 1.55, armMul: 1.45, arcMul: 1.5, rangeMul: 1.3, kbMul: 1.7 } },
   { id: 'sword_dagger',     name: 'シャドウダガー',    factory: sword_dagger,     dmgMul: 1.3, fireMul: 2.0, duration: 14, color: 0xc0c0ff,
-    statsText: ['攻撃力 +30%', '連射速度 +100%', '持続 ∞（永続）'] },
+    statsText: ['攻撃力 +30%', '連射速度 +100%', '持続 ∞（永続）'],
+    skill: { fx: 'demon', hitColor: 0x8a5cff, speedMul: 0.6, swingScale: 0.72, armMul: 1.5, arcMul: 0.65, rangeMul: 0.85, kbMul: 0.7 } },
   { id: 'sword_flame',      name: 'フレイムブレード',  factory: sword_flame,      dmgMul: 2.2, fireMul: 1.1, duration: 15, color: 0xff5a1a,
-    statsText: ['攻撃力 +120%', '連射速度 +10%', '持続 ∞（永続）', '炎属性'] },
+    statsText: ['攻撃力 +120%', '連射速度 +10%', '持続 ∞（永続）', '炎属性'],
+    skill: { fx: 'flame', hitColor: 0xff5a1a, speedMul: 0.85, swingScale: 1.3, armMul: 1.3, arcMul: 1.2, rangeMul: 1.2, kbMul: 1.2 } },
   { id: 'sword_frost',      name: 'フロストエッジ',    factory: sword_frost,      dmgMul: 1.9, fireMul: 1.1, duration: 15, color: 0x88e0ff,
-    statsText: ['攻撃力 +90%', '連射速度 +10%', '持続 ∞（永続）', '氷属性'] },
+    statsText: ['攻撃力 +90%', '連射速度 +10%', '持続 ∞（永続）', '氷属性'],
+    skill: { fx: 'frost', hitColor: 0x88e0ff, speedMul: 1.1, swingScale: 1.1, armMul: 1.0, arcMul: 1.35, rangeMul: 1.1, kbMul: 0.9 } },
   { id: 'sword_thunder',    name: 'サンダーソード',    factory: sword_thunder,    dmgMul: 2.1, fireMul: 1.3, duration: 14, color: 0xfff066,
-    statsText: ['攻撃力 +110%', '連射速度 +30%', '持続 ∞（永続）', '雷属性'] },
+    statsText: ['攻撃力 +110%', '連射速度 +30%', '持続 ∞（永続）', '雷属性'],
+    skill: { fx: 'thunder', hitColor: 0xfff066, speedMul: 0.65, swingScale: 1.2, armMul: 1.35, arcMul: 0.9, rangeMul: 1.25, kbMul: 1.1 } },
   { id: 'sword_holy',       name: '聖剣エクスカリオン', factory: sword_holy,      dmgMul: 2.6, fireMul: 1.0, duration: 14, color: 0xfff5cc,
-    statsText: ['攻撃力 +160%', '連射速度 ±0%', '持続 ∞（永続）', '聖属性'] },
+    statsText: ['攻撃力 +160%', '連射速度 ±0%', '持続 ∞（永続）', '聖属性'],
+    skill: { fx: 'holy', hitColor: 0xfff0b0, speedMul: 1.05, swingScale: 1.4, armMul: 1.2, arcMul: 1.6, rangeMul: 1.35, kbMul: 1.3 } },
   { id: 'sword_demon',      name: '魔剣デモンファング', factory: sword_demon,     dmgMul: 2.8, fireMul: 0.9, duration: 13, color: 0xff0066,
-    statsText: ['攻撃力 +180%', '連射速度 -10%', '持続 ∞（永続）', '闇属性'] },
+    statsText: ['攻撃力 +180%', '連射速度 -10%', '持続 ∞（永続）', '闇属性'],
+    skill: { fx: 'demon', hitColor: 0xff0044, speedMul: 0.9, swingScale: 1.45, armMul: 1.4, arcMul: 1.3, rangeMul: 1.25, kbMul: 1.5 } },
   { id: 'sword_rainbow',    name: 'プリズムブレード',  factory: sword_rainbow,    dmgMul: 2.3, fireMul: 1.5, duration: 14, color: 0xffffff,
-    statsText: ['攻撃力 +130%', '連射速度 +50%', '持続 ∞（永続）', '虹属性'] },
+    statsText: ['攻撃力 +130%', '連射速度 +50%', '持続 ∞（永続）', '虹属性'],
+    skill: { fx: 'rainbow', hitColor: 0xffffff, speedMul: 0.7, swingScale: 1.25, armMul: 1.3, arcMul: 1.4, rangeMul: 1.2, kbMul: 1.1 } },
 ];
 
 export const GUNS = [

@@ -4,3 +4,7 @@ dist
 *.log
 .vite
 .vercel
+
+# ローカル専用（本番には不要）
+.claude
+assets/buildings
